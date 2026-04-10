@@ -1,0 +1,63 @@
+# MCPlex — Dev Team Configuration
+# Multiple MCP servers with role-based access control
+# Developers get GitHub + Filesystem, Admins get everything
+
+[gateway]
+listen = "127.0.0.1:3100"
+dashboard = "127.0.0.1:9090"
+hot_reload = true
+name = "dev-team-gateway"
+
+[router]
+strategy = "keyword"
+top_k = 5
+similarity_threshold = 0.1
+
+[security]
+enable_rbac = true
+enable_audit_log = true
+audit_log_path = "./logs/audit.jsonl"
+
+# ── MCP Servers ──
+
+[[servers]]
+name = "github"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/dev/projects"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "slack"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-slack"]
+env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
+allowed_roles = ["admin"]
+
+# ── Roles ──
+
+[roles.developer]
+allowed_tools = ["github/*", "filesystem/*"]
+
+[roles.admin]
+allowed_tools = ["*"]
+
+# ── API Keys (uncomment and replace with real keys) ──
+
+# [api_keys."sk-dev-alice-abc123"]
+# role = "developer"
+# description = "Alice — Frontend team"
+
+# [api_keys."sk-dev-bob-def456"]
+# role = "developer"
+# description = "Bob — Backend team"
+
+# [api_keys."sk-admin-lead-xyz789"]
+# role = "admin"
+# description = "Tech lead"

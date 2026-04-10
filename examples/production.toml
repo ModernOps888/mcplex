@@ -1,0 +1,86 @@
+# MCPlex — Production Configuration
+# Hardened setup with caching, rate limiting, audit logs, and multi-tenant keys
+# Deploy behind a reverse proxy (nginx/caddy) with TLS termination
+
+[gateway]
+listen = "0.0.0.0:3100"
+dashboard = "127.0.0.1:9090"    # Dashboard on localhost only — reverse-proxy for external access
+hot_reload = true
+name = "prod-gateway"
+rate_limit_rps = 100
+
+[router]
+strategy = "keyword"
+top_k = 5
+similarity_threshold = 0.15
+
+[security]
+enable_rbac = true
+enable_audit_log = true
+audit_log_path = "./logs/audit.jsonl"
+
+# ── MCP Servers ──
+
+[[servers]]
+name = "github"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/data/shared"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "database"
+url = "http://db-mcp-server:8080/mcp"
+transport = "streamable-http"
+blocked_tools = ["drop_table", "delete_*", "truncate_*"]
+allowed_roles = ["admin"]
+
+[[servers]]
+name = "slack"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-slack"]
+env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
+allowed_roles = ["admin"]
+
+# ── Roles ──
+
+[roles.developer]
+allowed_tools = ["github/*", "filesystem/*", "database/query_*"]
+
+[roles.admin]
+allowed_tools = ["*"]
+
+[roles.readonly]
+allowed_tools = ["*/list_*", "*/get_*", "*/read_*", "*/search_*"]
+blocked_tools = ["*/delete_*", "*/drop_*", "*/create_*", "*/update_*"]
+
+# ── Response Cache ──
+
+[cache]
+enabled = true
+ttl_seconds = 300
+max_entries = 2000
+
+# ── Multi-Tenant API Keys ──
+
+[api_keys."sk-team-frontend-abc123"]
+role = "developer"
+description = "Frontend team"
+
+[api_keys."sk-team-backend-def456"]
+role = "developer"
+description = "Backend team"
+
+[api_keys."sk-readonly-viewer-ghi789"]
+role = "readonly"
+description = "Read-only monitoring"
+
+[api_keys."sk-admin-lead-xyz000"]
+role = "admin"
+description = "Platform admin"

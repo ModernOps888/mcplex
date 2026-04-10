@@ -1,0 +1,22 @@
+# MCPlex — Minimal Configuration
+# One filesystem server, no authentication
+# Perfect for local development and testing
+
+[gateway]
+listen = "127.0.0.1:3100"
+dashboard = "127.0.0.1:9090"
+hot_reload = true
+name = "dev-local"
+
+[router]
+strategy = "keyword"
+top_k = 5
+
+[security]
+enable_rbac = false
+enable_audit_log = false
+
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "./"]

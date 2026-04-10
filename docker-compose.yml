@@ -1,0 +1,32 @@
+# ─────────────────────────────────────
+# MCPlex Docker Compose
+# Run: docker compose up -d
+# ─────────────────────────────────────
+
+services:
+  mcplex:
+    build: .
+    container_name: mcplex-gateway
+    ports:
+      - "3100:3100"   # MCP endpoint
+      - "9090:9090"   # Dashboard
+    volumes:
+      - ./mcplex.toml:/app/mcplex.toml:ro
+      - mcplex-logs:/app/logs
+    environment:
+      - RUST_LOG=info
+      # Pass secrets via env vars (referenced in mcplex.toml as ${GITHUB_TOKEN})
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SLACK_TOKEN=${SLACK_TOKEN:-}
+      - MCPLEX_API_KEY=${MCPLEX_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  mcplex-logs:
+    driver: local
