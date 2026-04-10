@@ -1,0 +1,53 @@
+# MCPlex Demo Configuration
+# 3 mock MCP servers: GitHub (8 tools), Slack (6 tools), Database (10 tools)
+# Total: 24 tools — MCPlex will route to top 5 per query, saving ~80% tokens!
+
+[gateway]
+listen = "127.0.0.1:3100"
+dashboard = "127.0.0.1:9090"
+hot_reload = true
+name = "demo-gateway"
+
+[router]
+strategy = "semantic"
+top_k = 5
+cache_embeddings = true
+similarity_threshold = 0.1
+
+[security]
+enable_rbac = true
+enable_audit_log = true
+audit_log_path = "./logs/demo_audit.jsonl"
+
+# ── GitHub Mock Server (8 tools) ──
+[[servers]]
+name = "github"
+url = "http://127.0.0.1:8081"
+transport = "streamable-http"
+allowed_roles = ["developer", "admin"]
+
+# ── Slack Mock Server (6 tools) ──
+[[servers]]
+name = "slack"
+url = "http://127.0.0.1:8082"
+transport = "streamable-http"
+allowed_roles = ["admin"]
+
+# ── Database Mock Server (10 tools) ──
+[[servers]]
+name = "database"
+url = "http://127.0.0.1:8083"
+transport = "streamable-http"
+blocked_tools = ["drop_table", "delete_*"]
+allowed_roles = ["developer", "admin"]
+
+# ── Roles ──
+[roles.developer]
+allowed_tools = ["github/*", "database/query_*", "database/list_*", "database/get_*", "database/export_*"]
+
+[roles.admin]
+allowed_tools = ["*"]
+
+[roles.readonly]
+allowed_tools = ["*/list_*", "*/get_*", "*/search_*", "*/query_*"]
+blocked_tools = ["*/delete_*", "*/drop_*", "*/create_*", "*/update_*", "*/insert_*"]

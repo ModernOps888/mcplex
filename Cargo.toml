@@ -1,0 +1,57 @@
+[package]
+name = "mcplex"
+version = "0.1.0"
+edition = "2021"
+description = "MCPlex - The MCP Smart Gateway. Semantic tool routing, security guardrails, and real-time observability for AI agents."
+license = "MIT"
+repository = "https://github.com/modernops888/mcplex"
+readme = "README.md"
+keywords = ["mcp", "ai-agents", "gateway", "tool-routing", "observability"]
+categories = ["command-line-utilities", "network-programming", "web-programming"]
+authors = ["ModernOps888"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework for dashboard + HTTP transport
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging & tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# File watching for hot-reload
+notify = "7"
+
+# HTTP client for streamable HTTP transport
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# UUID for trace IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Glob pattern matching for allowlists
+glob = "0.3"
+
+# Error handling
+anyhow = "1"
+
+# Process spawning for stdio transport
+which = "7"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

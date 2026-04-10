@@ -1,0 +1,68 @@
+# MCPlex Configuration Example
+# See README.md for full documentation
+
+[gateway]
+listen = "127.0.0.1:3100"      # MCP client connection address
+dashboard = "127.0.0.1:9090"   # Observability dashboard address
+hot_reload = true               # Auto-reload config on file change
+name = "my-gateway"             # Gateway instance name
+
+[router]
+strategy = "keyword"            # "semantic", "keyword", or "passthrough"
+top_k = 5                       # Max tools to return per query
+cache_embeddings = true         # Cache tool embeddings for faster routing
+similarity_threshold = 0.1     # Minimum similarity score (0.0-1.0)
+
+[security]
+enable_rbac = true              # Enable role-based access control
+enable_audit_log = true         # Enable structured audit logging
+audit_log_path = "./logs/audit.jsonl"  # Audit log file path
+
+# ─────────────────────────────────────────────
+# MCP Servers
+# ─────────────────────────────────────────────
+
+# Example: GitHub MCP Server (stdio transport)
+# [[servers]]
+# name = "github"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+# allowed_roles = ["developer", "admin"]
+
+# Example: Filesystem MCP Server (stdio transport)
+# [[servers]]
+# name = "filesystem"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+# allowed_roles = ["developer", "admin"]
+
+# Example: Remote MCP Server (HTTP transport)
+# [[servers]]
+# name = "database"
+# url = "http://localhost:8080/mcp"
+# transport = "streamable-http"
+# blocked_tools = ["drop_table", "delete_*", "truncate_*"]
+# allowed_roles = ["admin"]
+
+# Example: Slack MCP Server
+# [[servers]]
+# name = "slack"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-slack"]
+# env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
+# allowed_roles = ["admin"]
+
+# ─────────────────────────────────────────────
+# Roles (used when security.enable_rbac = true)
+# ─────────────────────────────────────────────
+
+[roles.developer]
+allowed_tools = ["github/*", "filesystem/*", "database/query_*"]
+
+[roles.admin]
+allowed_tools = ["*"]
+
+[roles.readonly]
+allowed_tools = ["*/list_*", "*/get_*", "*/read_*", "*/search_*"]
+blocked_tools = ["*/delete_*", "*/drop_*", "*/create_*", "*/update_*"]

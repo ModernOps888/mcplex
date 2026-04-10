@@ -1,0 +1,20 @@
+# Build artifacts
+target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep structure but not contents)
+logs/*.jsonl
+logs/*.log
+
+# Environment
+.env
