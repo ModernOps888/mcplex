@@ -17,6 +17,7 @@ use config::AppConfig;
 use observe::metrics::MetricsCollector;
 use observe::dashboard::DashboardServer;
 use protocol::multiplexer::Multiplexer;
+use protocol::cache::ToolCache;
 use security::SecurityEngine;
 use router::ToolRouter;
 
@@ -27,6 +28,7 @@ pub struct AppState {
     pub multiplexer: RwLock<Multiplexer>,
     pub security: RwLock<SecurityEngine>,
     pub router: RwLock<Box<dyn ToolRouter + Send + Sync>>,
+    pub cache: ToolCache,
 }
 
 #[derive(clap::Parser)]
@@ -114,6 +116,22 @@ async fn main() -> anyhow::Result<()> {
     let router = router::create_router(&app_config);
     info!("🧠 Router initialized: {:?} (top_k={})", app_config.router.strategy, app_config.router.top_k);
 
+    // Initialize cache
+    let cache = ToolCache::new(
+        app_config.cache.ttl_seconds,
+        app_config.cache.max_entries,
+        app_config.cache.patterns.clone(),
+    );
+    if app_config.cache.enabled {
+        info!("📦 Response cache enabled (TTL: {}s, max: {} entries)",
+            app_config.cache.ttl_seconds, app_config.cache.max_entries);
+    }
+
+    // Multi-tenant API keys
+    if !app_config.api_keys.is_empty() {
+        info!("🔑 {} API key(s) configured for multi-tenant access", app_config.api_keys.len());
+    }
+
     // Build shared state
     let state = Arc::new(AppState {
         config: RwLock::new(app_config.clone()),
@@ -121,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
         multiplexer: RwLock::new(multiplexer),
         security: RwLock::new(security),
         router: RwLock::new(router),
+        cache,
     });
 
     // Start the hot-reload watcher

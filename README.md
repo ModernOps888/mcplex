@@ -38,8 +38,10 @@ Your Agent ──→ MCPlex Gateway ──→ GitHub MCP
                     │           ──→ Filesystem MCP
                     ▼
             🧠 Smart Routing (70-90% token savings)
-            🔒 RBAC + Audit Logs
-            📊 Real-time Dashboard
+            🔒 RBAC + Audit Logs + API Key Auth
+            📊 Real-time Dashboard + Prometheus
+            📦 Response Caching (auto-detect read-only)
+            🔑 Multi-Tenant (API key → role mapping)
             🔥 Hot-reload Config
 ```
 
@@ -225,6 +227,42 @@ The dashboard auto-refreshes every 3 seconds with zero configuration.
 ![MCPlex Dashboard](docs/screenshots/dashboard.png)
 
 ![Live Event Feed](docs/screenshots/event-feed.png)
+
+## 📦 Response Caching
+
+Avoid redundant upstream calls for read-only tools:
+
+```toml
+[cache]
+enabled = true
+ttl_seconds = 300     # 5 minute TTL
+max_entries = 1000    # Max cached responses
+```
+
+MCPlex **auto-detects** read-only tools by prefix (`list_*`, `get_*`, `search_*`, `query_*`, `describe_*`, `show_*`). You can override with custom patterns:
+
+```toml
+[cache]
+patterns = ["my_custom_tool", "expensive_*"]
+```
+
+Write operations (`create_*`, `update_*`, `delete_*`) are **never cached** by default.
+
+## 🔑 Multi-Tenant API Keys
+
+Map API keys to RBAC roles for team-based access:
+
+```toml
+[api_keys."sk-dev-team-abc123"]
+role = "developer"
+description = "Dev team key"
+
+[api_keys."sk-admin-xyz789"]
+role = "admin"
+description = "Admin key"
+```
+
+When a request comes in with `Authorization: Bearer sk-dev-team-abc123`, MCPlex automatically applies the `developer` role's RBAC policies.
 
 ## 🔥 Hot-Reload Configuration
 

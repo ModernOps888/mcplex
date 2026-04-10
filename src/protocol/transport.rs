@@ -235,16 +235,40 @@ async fn handle_tools_call(
 
     let tool_name = params.name.clone();
 
-    // Security check
+    // Resolve role from request headers (via _mcplex_role param or default)
+    let role = request.params.as_ref()
+        .and_then(|p| p.get("_mcplex_role"))
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
+
+    // Security check (with role if available)
     let security = state.security.read().await;
-    if !security.is_tool_allowed(&tool_name, None) {
-        warn!("🚫 Tool call blocked by security policy: {}", tool_name);
+    if !security.is_tool_allowed(&tool_name, role.as_deref()) {
+        warn!("🚫 Tool call blocked by security policy: {} (role: {:?})", tool_name, role);
         security.audit_blocked_call(&tool_name, "security_policy");
         return JsonRpcResponse::error(
             request.id.clone(),
             -32001,
             &format!("Tool '{}' is not allowed by security policy", tool_name),
         );
+    }
+
+    // Check cache first (if enabled)
+    let config = state.config.read().await;
+    let cache_enabled = config.cache.enabled;
+    drop(config);
+
+    if cache_enabled {
+        if let Some(cached_result) = state.cache.get(&tool_name, &params.arguments) {
+            let elapsed = start.elapsed();
+            state.metrics.record_event(EventType::ToolCall {
+                tool_name: tool_name.clone(),
+                server_name: "cache".to_string(),
+                duration_ms: elapsed.as_millis() as u64,
+                success: true,
+            });
+            return JsonRpcResponse::success(request.id.clone(), cached_result);
+        }
     }
 
     // Find which server owns this tool
@@ -271,7 +295,13 @@ async fn handle_tools_call(
             security.audit_tool_call(&tool_name, &server, &params, elapsed.as_millis() as u64);
 
             match result {
-                Ok(result_value) => JsonRpcResponse::success(request.id.clone(), result_value),
+                Ok(result_value) => {
+                    // Store in cache if enabled
+                    if cache_enabled {
+                        state.cache.put(&tool_name, &params.arguments, result_value.clone());
+                    }
+                    JsonRpcResponse::success(request.id.clone(), result_value)
+                }
                 Err(e) => {
                     error!("Tool call failed: {} — {}", tool_name, e);
                     JsonRpcResponse::error(

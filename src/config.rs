@@ -16,9 +16,14 @@ pub struct AppConfig {
     #[serde(default)]
     pub security: SecurityConfig,
     #[serde(default)]
+    pub cache: CacheConfig,
+    #[serde(default)]
     pub servers: Vec<ServerConfig>,
     #[serde(default)]
     pub roles: HashMap<String, RoleConfig>,
+    /// API key → role mapping for multi-tenant access
+    #[serde(default)]
+    pub api_keys: HashMap<String, ApiKeyConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +77,36 @@ pub struct SecurityConfig {
     /// Maximum audit log file size in MB before rotation
     #[serde(default = "default_max_log_size")]
     pub max_log_size_mb: u64,
+}
+
+/// Cache configuration for tool response caching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    /// Enable tool response caching
+    #[serde(default)]
+    pub enabled: bool,
+    /// TTL in seconds for cached responses
+    #[serde(default = "default_cache_ttl")]
+    pub ttl_seconds: u64,
+    /// Maximum number of cached entries
+    #[serde(default = "default_cache_max")]
+    pub max_entries: usize,
+    /// Tool patterns to cache (empty = auto-detect read-only tools)
+    #[serde(default)]
+    pub patterns: Vec<String>,
+}
+
+/// API key configuration for multi-tenant access
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyConfig {
+    /// Role name this API key maps to
+    pub role: String,
+    /// Description of this key holder
+    #[serde(default)]
+    pub description: String,
+    /// Whether this key is active
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +176,19 @@ fn default_top_k() -> usize { 5 }
 fn default_threshold() -> f32 { 0.3 }
 fn default_audit_path() -> String { "./logs/audit.jsonl".to_string() }
 fn default_max_log_size() -> u64 { 100 }
+fn default_cache_ttl() -> u64 { 300 }
+fn default_cache_max() -> usize { 1000 }
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ttl_seconds: default_cache_ttl(),
+            max_entries: default_cache_max(),
+            patterns: vec![],
+        }
+    }
+}
 
 impl Default for RouterConfig {
     fn default() -> Self {

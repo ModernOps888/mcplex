@@ -68,3 +68,25 @@ allowed_tools = ["*"]
 [roles.readonly]
 allowed_tools = ["*/list_*", "*/get_*", "*/read_*", "*/search_*"]
 blocked_tools = ["*/delete_*", "*/drop_*", "*/create_*", "*/update_*"]
+
+# ─────────────────────────────────────────────
+# Response Cache (reduces duplicate upstream calls)
+# ─────────────────────────────────────────────
+
+[cache]
+enabled = false                  # Set to true to enable caching
+ttl_seconds = 300                # Cache TTL (5 minutes)
+max_entries = 1000               # Max cached responses
+# patterns = ["list_*", "get_*"]  # Optional: custom cache patterns (default: auto-detect read-only tools)
+
+# ─────────────────────────────────────────────
+# Multi-Tenant API Keys (maps keys to roles)
+# ─────────────────────────────────────────────
+
+# [api_keys."sk-dev-team-abc123"]
+# role = "developer"
+# description = "Dev team API key"
+
+# [api_keys."sk-admin-xyz789"]
+# role = "admin"
+# description = "Admin key"

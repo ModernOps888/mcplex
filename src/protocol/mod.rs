@@ -3,6 +3,7 @@
 
 pub mod transport;
 pub mod multiplexer;
+pub mod cache;
 
 use serde::{Deserialize, Serialize};
 
