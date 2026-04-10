@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use tracing::debug;
 
-use crate::protocol::RegisteredTool;
 use super::ToolRouter;
+use crate::protocol::RegisteredTool;
 
 /// Keyword-based router using TF-IDF scoring
 /// Zero external dependencies — works without any ML model
@@ -47,7 +47,8 @@ impl ToolRouter for KeywordRouter {
             }
         }
 
-        let idf: HashMap<String, f32> = doc_freq.iter()
+        let idf: HashMap<String, f32> = doc_freq
+            .iter()
             .map(|(token, df)| {
                 let idf_val = (total_docs / (*df as f32 + 1.0)).ln() + 1.0;
                 (token.clone(), idf_val)
@@ -55,7 +56,8 @@ impl ToolRouter for KeywordRouter {
             .collect();
 
         // Score each tool against the query
-        let mut scored: Vec<(usize, f32)> = doc_tokens.iter()
+        let mut scored: Vec<(usize, f32)> = doc_tokens
+            .iter()
             .enumerate()
             .map(|(i, tokens)| {
                 let score = tfidf_cosine_similarity(&query_tokens, tokens, &idf);
@@ -68,7 +70,8 @@ impl ToolRouter for KeywordRouter {
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Take top_k
-        let selected: Vec<RegisteredTool> = scored.iter()
+        let selected: Vec<RegisteredTool> = scored
+            .iter()
             .take(top_k)
             .map(|(i, score)| {
                 debug!("  📌 {} (score: {:.3})", tools[*i].fqn, score);
@@ -117,17 +120,17 @@ fn build_tool_text(tool: &RegisteredTool) -> String {
 /// Tokenize text into lowercase words, filtering stopwords
 fn tokenize(text: &str) -> Vec<String> {
     let stopwords: std::collections::HashSet<&str> = [
-        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-        "on", "with", "at", "by", "from", "as", "into", "through", "during",
-        "before", "after", "above", "below", "between", "out", "off", "over",
-        "under", "again", "further", "then", "once", "here", "there", "when",
-        "where", "why", "how", "all", "both", "each", "few", "more", "most",
-        "other", "some", "such", "no", "not", "only", "own", "same", "so",
-        "than", "too", "very", "just", "or", "and", "but", "if", "this",
-        "that", "these", "those", "it", "its",
-    ].into_iter().collect();
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall",
+        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+        "during", "before", "after", "above", "below", "between", "out", "off", "over", "under",
+        "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all",
+        "both", "each", "few", "more", "most", "other", "some", "such", "no", "not", "only", "own",
+        "same", "so", "than", "too", "very", "just", "or", "and", "but", "if", "this", "that",
+        "these", "those", "it", "its",
+    ]
+    .into_iter()
+    .collect();
 
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric() && c != '_')
@@ -209,7 +212,11 @@ mod tests {
         let tools = vec![
             make_tool("create_issue", "Create a new GitHub issue", "github"),
             make_tool("send_message", "Send a Slack message to a channel", "slack"),
-            make_tool("query_database", "Execute a SQL query on the database", "database"),
+            make_tool(
+                "query_database",
+                "Execute a SQL query on the database",
+                "database",
+            ),
             make_tool("list_repos", "List GitHub repositories", "github"),
         ];
 
@@ -221,9 +228,7 @@ mod tests {
     #[test]
     fn test_keyword_router_empty_query() {
         let router = KeywordRouter::new(0.0);
-        let tools = vec![
-            make_tool("test", "A test tool", "test"),
-        ];
+        let tools = vec![make_tool("test", "A test tool", "test")];
         let results = router.route("", &tools, 5);
         assert_eq!(results.len(), 1); // Returns all tools for empty query
     }

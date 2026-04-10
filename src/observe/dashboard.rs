@@ -1,13 +1,13 @@
 // MCPlex — Dashboard Server
 // Built-in web dashboard for real-time observability
 
-use std::sync::Arc;
 use axum::{
-    Router, Json,
     extract::State,
     response::{Html, IntoResponse},
     routing::get,
+    Json, Router,
 };
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
@@ -18,10 +18,7 @@ pub struct DashboardServer;
 
 impl DashboardServer {
     /// Start the dashboard HTTP server
-    pub async fn start(
-        addr: &str,
-        state: Arc<AppState>,
-    ) -> anyhow::Result<()> {
+    pub async fn start(addr: &str, state: Arc<AppState>) -> anyhow::Result<()> {
         let app = Router::new()
             .route("/", get(serve_dashboard))
             .route("/api/metrics", get(api_metrics))
@@ -46,36 +43,33 @@ async fn serve_dashboard() -> impl IntoResponse {
 }
 
 /// API: Get all metrics
-async fn api_metrics(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn api_metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(state.metrics.get_dashboard_data())
 }
 
 /// API: Get tool statistics
-async fn api_tools(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn api_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = state.metrics.get_tool_stats();
-    let tools: Vec<serde_json::Value> = stats.values()
-        .map(|s| serde_json::json!({
-            "name": s.name,
-            "invocations": s.invocation_count,
-            "successes": s.success_count,
-            "errors": s.error_count,
-            "avg_ms": format!("{:.1}", s.avg_duration_ms()),
-            "p50_ms": s.p50(),
-            "p95_ms": s.p95(),
-            "p99_ms": s.p99(),
-        }))
+    let tools: Vec<serde_json::Value> = stats
+        .values()
+        .map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "invocations": s.invocation_count,
+                "successes": s.success_count,
+                "errors": s.error_count,
+                "avg_ms": format!("{:.1}", s.avg_duration_ms()),
+                "p50_ms": s.p50(),
+                "p95_ms": s.p95(),
+                "p99_ms": s.p99(),
+            })
+        })
         .collect();
     Json(serde_json::json!({ "tools": tools }))
 }
 
 /// API: Get server statuses
-async fn api_servers(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn api_servers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let multiplexer = state.multiplexer.read().await;
     Json(serde_json::json!({
         "servers": multiplexer.get_server_statuses()
@@ -83,17 +77,13 @@ async fn api_servers(
 }
 
 /// API: Get recent events
-async fn api_events(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn api_events(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let events = state.metrics.get_recent_events(100);
     Json(serde_json::json!({ "events": events }))
 }
 
 /// API: Get current configuration (sanitized)
-async fn api_config(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn api_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let config = state.config.read().await;
     Json(serde_json::json!({
         "gateway": {

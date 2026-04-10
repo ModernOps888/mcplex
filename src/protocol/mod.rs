@@ -1,9 +1,10 @@
 // MCPlex — MCP Protocol Module
 // Core MCP JSON-RPC types and message handling
 
-pub mod transport;
-pub mod multiplexer;
 pub mod cache;
+pub mod multiplexer;
+pub mod stdio;
+pub mod transport;
 
 use serde::{Deserialize, Serialize};
 
@@ -127,7 +128,11 @@ pub enum ToolContent {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "image")]
-    Image { data: String, #[serde(rename = "mimeType")] mime_type: String },
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
     #[serde(rename = "resource")]
     Resource { resource: serde_json::Value },
 }
@@ -139,6 +144,114 @@ pub struct ToolsListResult {
     #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
+
+// ─────────────────────────────────────────────
+// MCP Resource Types
+// ─────────────────────────────────────────────
+
+/// MCP Resource Definition (from resources/list)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceDefinition {
+    pub uri: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+}
+
+/// Result from resources/list
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourcesListResult {
+    pub resources: Vec<ResourceDefinition>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// Content returned from resources/read
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceContent {
+    pub uri: String,
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub blob: Option<String>,
+}
+
+/// Result from resources/read
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceReadResult {
+    pub contents: Vec<ResourceContent>,
+}
+
+// ─────────────────────────────────────────────
+// MCP Prompt Types
+// ─────────────────────────────────────────────
+
+/// MCP Prompt Definition (from prompts/list)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptDefinition {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Option<Vec<PromptArgument>>,
+}
+
+/// Prompt argument definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptArgument {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: Option<bool>,
+}
+
+/// Result from prompts/list
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptsListResult {
+    pub prompts: Vec<PromptDefinition>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// A single message in a prompt response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: PromptContent,
+}
+
+/// Content of a prompt message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PromptContent {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+    #[serde(rename = "resource")]
+    Resource { resource: ResourceContent },
+}
+
+/// Result from prompts/get
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptGetResult {
+    #[serde(default)]
+    pub description: Option<String>,
+    pub messages: Vec<PromptMessage>,
+}
+
+// ─────────────────────────────────────────────
+// Registered Tool / Resource / Prompt with Origin
+// ─────────────────────────────────────────────
 
 /// Registered tool with server origin tracking
 #[derive(Debug, Clone)]
@@ -153,6 +266,44 @@ pub struct RegisteredTool {
 
 impl RegisteredTool {
     pub fn new(definition: ToolDefinition, server_name: &str) -> Self {
+        let fqn = format!("{}/{}", server_name, definition.name);
+        Self {
+            definition,
+            server_name: server_name.to_string(),
+            fqn,
+        }
+    }
+}
+
+/// Registered resource with server origin tracking
+#[derive(Debug, Clone)]
+pub struct RegisteredResource {
+    pub definition: ResourceDefinition,
+    pub server_name: String,
+    pub fqn: String,
+}
+
+impl RegisteredResource {
+    pub fn new(definition: ResourceDefinition, server_name: &str) -> Self {
+        let fqn = format!("{}/{}", server_name, definition.uri);
+        Self {
+            definition,
+            server_name: server_name.to_string(),
+            fqn,
+        }
+    }
+}
+
+/// Registered prompt with server origin tracking
+#[derive(Debug, Clone)]
+pub struct RegisteredPrompt {
+    pub definition: PromptDefinition,
+    pub server_name: String,
+    pub fqn: String,
+}
+
+impl RegisteredPrompt {
+    pub fn new(definition: PromptDefinition, server_name: &str) -> Self {
         let fqn = format!("{}/{}", server_name, definition.name);
         Self {
             definition,

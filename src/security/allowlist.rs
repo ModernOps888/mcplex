@@ -16,7 +16,8 @@ struct ServerToolRule {
 
 impl AllowlistEngine {
     pub fn new(servers: &[ServerConfig]) -> Self {
-        let rules = servers.iter()
+        let rules = servers
+            .iter()
             .map(|s| ServerToolRule {
                 server_name: s.name.clone(),
                 allowed_tools: s.allowed_tools.clone(),
@@ -52,7 +53,9 @@ impl AllowlistEngine {
 
             // If allowlist is defined, tool must match at least one pattern
             if !rule.allowed_tools.is_empty() {
-                let allowed = rule.allowed_tools.iter()
+                let allowed = rule
+                    .allowed_tools
+                    .iter()
                     .any(|pattern| glob_match(pattern, tool) || glob_match(pattern, tool_fqn));
                 if !allowed && (server == rule.server_name || server.is_empty()) {
                     return false;
@@ -71,12 +74,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     glob_match_recursive(&pattern_chars, &text_chars, 0, 0)
 }
 
-fn glob_match_recursive(
-    pattern: &[char],
-    text: &[char],
-    pi: usize,
-    ti: usize,
-) -> bool {
+fn glob_match_recursive(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {
     if pi == pattern.len() && ti == text.len() {
         return true;
     }
@@ -108,20 +106,18 @@ mod tests {
 
     #[test]
     fn test_allowlist_blocks_dangerous_tools() {
-        let servers = vec![
-            ServerConfig {
-                name: "database".to_string(),
-                command: None,
-                args: vec![],
-                url: Some("http://localhost:8080".to_string()),
-                transport: crate::config::TransportType::Auto,
-                env: HashMap::new(),
-                allowed_roles: vec![],
-                blocked_tools: vec!["drop_*".to_string(), "delete_*".to_string()],
-                allowed_tools: vec![],
-                enabled: true,
-            },
-        ];
+        let servers = vec![ServerConfig {
+            name: "database".to_string(),
+            command: None,
+            args: vec![],
+            url: Some("http://localhost:8080".to_string()),
+            transport: crate::config::TransportType::Auto,
+            env: HashMap::new(),
+            allowed_roles: vec![],
+            blocked_tools: vec!["drop_*".to_string(), "delete_*".to_string()],
+            allowed_tools: vec![],
+            enabled: true,
+        }];
 
         let engine = AllowlistEngine::new(&servers);
 
@@ -133,20 +129,18 @@ mod tests {
 
     #[test]
     fn test_allowlist_only_permits_listed() {
-        let servers = vec![
-            ServerConfig {
-                name: "github".to_string(),
-                command: None,
-                args: vec![],
-                url: Some("http://localhost:8081".to_string()),
-                transport: crate::config::TransportType::Auto,
-                env: HashMap::new(),
-                allowed_roles: vec![],
-                blocked_tools: vec![],
-                allowed_tools: vec!["list_*".to_string(), "get_*".to_string()],
-                enabled: true,
-            },
-        ];
+        let servers = vec![ServerConfig {
+            name: "github".to_string(),
+            command: None,
+            args: vec![],
+            url: Some("http://localhost:8081".to_string()),
+            transport: crate::config::TransportType::Auto,
+            env: HashMap::new(),
+            allowed_roles: vec![],
+            blocked_tools: vec![],
+            allowed_tools: vec!["list_*".to_string(), "get_*".to_string()],
+            enabled: true,
+        }];
 
         let engine = AllowlistEngine::new(&servers);
 

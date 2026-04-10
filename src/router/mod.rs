@@ -33,19 +33,13 @@ impl ToolRouter for PassthroughRouter {
 /// Create a router based on configuration
 pub fn create_router(config: &AppConfig) -> Box<dyn ToolRouter + Send + Sync> {
     match config.router.strategy {
-        RouterStrategy::Semantic => {
-            Box::new(semantic::SemanticRouter::new(
-                config.router.similarity_threshold,
-                config.router.cache_embeddings,
-            ))
-        }
-        RouterStrategy::Keyword => {
-            Box::new(keyword::KeywordRouter::new(
-                config.router.similarity_threshold,
-            ))
-        }
-        RouterStrategy::Passthrough => {
-            Box::new(PassthroughRouter)
-        }
+        RouterStrategy::Semantic => Box::new(semantic::SemanticRouter::new(
+            config.router.similarity_threshold,
+            config.router.cache_embeddings,
+        )),
+        RouterStrategy::Keyword => Box::new(keyword::KeywordRouter::new(
+            config.router.similarity_threshold,
+        )),
+        RouterStrategy::Passthrough => Box::new(PassthroughRouter),
     }
 }

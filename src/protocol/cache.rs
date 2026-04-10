@@ -41,13 +41,17 @@ impl ToolCache {
     }
 
     /// Check if a tool call result is cached and still valid
-    pub fn get(&self, tool_name: &str, arguments: &Option<serde_json::Value>) -> Option<serde_json::Value> {
+    pub fn get(
+        &self,
+        tool_name: &str,
+        arguments: &Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
         if !self.is_cacheable(tool_name) {
             return None;
         }
 
         let key = Self::cache_key(tool_name, arguments);
-        
+
         if let Ok(mut entries) = self.entries.write() {
             if let Some(entry) = entries.get_mut(&key) {
                 if !entry.is_expired() {
@@ -65,17 +69,23 @@ impl ToolCache {
     }
 
     /// Store a tool call result in the cache
-    pub fn put(&self, tool_name: &str, arguments: &Option<serde_json::Value>, value: serde_json::Value) {
+    pub fn put(
+        &self,
+        tool_name: &str,
+        arguments: &Option<serde_json::Value>,
+        value: serde_json::Value,
+    ) {
         if !self.is_cacheable(tool_name) {
             return;
         }
 
         let key = Self::cache_key(tool_name, arguments);
-        
+
         if let Ok(mut entries) = self.entries.write() {
             // Evict if at capacity — remove oldest expired entries first
             if entries.len() >= self.max_entries {
-                let expired_keys: Vec<String> = entries.iter()
+                let expired_keys: Vec<String> = entries
+                    .iter()
                     .filter(|(_, v)| v.is_expired())
                     .map(|(k, _)| k.clone())
                     .collect();
@@ -85,7 +95,8 @@ impl ToolCache {
 
                 // If still at capacity, remove oldest entry
                 if entries.len() >= self.max_entries {
-                    if let Some(oldest_key) = entries.iter()
+                    if let Some(oldest_key) = entries
+                        .iter()
                         .min_by_key(|(_, v)| v.inserted_at)
                         .map(|(k, _)| k.clone())
                     {
@@ -94,12 +105,15 @@ impl ToolCache {
                 }
             }
 
-            entries.insert(key, CacheEntry {
-                value,
-                inserted_at: Instant::now(),
-                ttl: self.default_ttl,
-                hits: 0,
-            });
+            entries.insert(
+                key,
+                CacheEntry {
+                    value,
+                    inserted_at: Instant::now(),
+                    ttl: self.default_ttl,
+                    hits: 0,
+                },
+            );
         }
     }
 
@@ -124,9 +138,17 @@ impl ToolCache {
             let total = entries.len();
             let expired = entries.values().filter(|e| e.is_expired()).count();
             let total_hits: u64 = entries.values().map(|e| e.hits).sum();
-            CacheStats { total_entries: total, expired_entries: expired, total_hits }
+            CacheStats {
+                total_entries: total,
+                expired_entries: expired,
+                total_hits,
+            }
         } else {
-            CacheStats { total_entries: 0, expired_entries: 0, total_hits: 0 }
+            CacheStats {
+                total_entries: 0,
+                expired_entries: 0,
+                total_hits: 0,
+            }
         }
     }
 
@@ -134,7 +156,16 @@ impl ToolCache {
     fn is_cacheable(&self, tool_name: &str) -> bool {
         if self.cacheable_patterns.is_empty() {
             // Default: cache read-only tools (list_*, get_*, search_*, query_*, describe_*, show_*)
-            let read_prefixes = ["list_", "get_", "search_", "query_", "describe_", "show_", "count_", "check_"];
+            let read_prefixes = [
+                "list_",
+                "get_",
+                "search_",
+                "query_",
+                "describe_",
+                "show_",
+                "count_",
+                "check_",
+            ];
             return read_prefixes.iter().any(|p| tool_name.starts_with(p));
         }
 
@@ -148,7 +179,11 @@ impl ToolCache {
     /// Generate a deterministic cache key from tool name + arguments
     fn cache_key(tool_name: &str, arguments: &Option<serde_json::Value>) -> String {
         match arguments {
-            Some(args) => format!("{}:{}", tool_name, serde_json::to_string(args).unwrap_or_default()),
+            Some(args) => format!(
+                "{}:{}",
+                tool_name,
+                serde_json::to_string(args).unwrap_or_default()
+            ),
             None => format!("{}:()", tool_name),
         }
     }
@@ -168,17 +203,17 @@ mod tests {
     #[test]
     fn test_cache_hit_miss() {
         let cache = ToolCache::new(60, 100, vec![]);
-        
+
         // list_ prefix is auto-cacheable
         let args = Some(serde_json::json!({"filter": "active"}));
-        
+
         // Miss
         assert!(cache.get("list_tables", &args).is_none());
-        
+
         // Put
         let result = serde_json::json!({"tables": ["users", "orders"]});
         cache.put("list_tables", &args, result.clone());
-        
+
         // Hit
         let cached = cache.get("list_tables", &args);
         assert!(cached.is_some());
@@ -188,11 +223,11 @@ mod tests {
     #[test]
     fn test_non_cacheable_tools() {
         let cache = ToolCache::new(60, 100, vec![]);
-        
+
         // create_ prefix is NOT auto-cacheable
         let args = Some(serde_json::json!({"name": "test"}));
         let result = serde_json::json!({"id": 1});
-        
+
         cache.put("create_issue", &args, result);
         assert!(cache.get("create_issue", &args).is_none());
     }
@@ -200,10 +235,10 @@ mod tests {
     #[test]
     fn test_cache_expiration() {
         let cache = ToolCache::new(0, 100, vec![]); // 0 second TTL
-        
+
         let args = None;
         cache.put("list_tables", &args, serde_json::json!({}));
-        
+
         // Should be expired immediately
         std::thread::sleep(std::time::Duration::from_millis(10));
         assert!(cache.get("list_tables", &args).is_none());
@@ -212,18 +247,18 @@ mod tests {
     #[test]
     fn test_custom_patterns() {
         let cache = ToolCache::new(60, 100, vec!["my_tool".to_string(), "custom_*".to_string()]);
-        
+
         let args = None;
         let val = serde_json::json!("ok");
-        
+
         // Exact match
         cache.put("my_tool", &args, val.clone());
         assert!(cache.get("my_tool", &args).is_some());
-        
+
         // Glob match
         cache.put("custom_query", &args, val.clone());
         assert!(cache.get("custom_query", &args).is_some());
-        
+
         // Non-match (list_ wouldn't match with custom patterns set)
         cache.put("list_tables", &args, val);
         assert!(cache.get("list_tables", &args).is_none());
@@ -232,10 +267,10 @@ mod tests {
     #[test]
     fn test_invalidation() {
         let cache = ToolCache::new(60, 100, vec![]);
-        
+
         cache.put("list_tables", &None, serde_json::json!({"a": 1}));
         cache.put("list_repos", &None, serde_json::json!({"b": 2}));
-        
+
         cache.invalidate("list_tables");
         assert!(cache.get("list_tables", &None).is_none());
         assert!(cache.get("list_repos", &None).is_some());

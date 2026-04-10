@@ -1,11 +1,11 @@
 // MCPlex — Configuration Module
 // Hot-reloadable TOML configuration with CLI overrides
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Root configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,26 +158,47 @@ pub enum RouterStrategy {
     Passthrough,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TransportType {
     Stdio,
     #[serde(rename = "streamable-http")]
     StreamableHttp,
+    #[default]
     Auto,
 }
 
 // Defaults
-fn default_listen() -> String { "127.0.0.1:3100".to_string() }
-fn default_server_name() -> String { "mcplex".to_string() }
-fn default_true() -> bool { true }
-fn default_strategy() -> RouterStrategy { RouterStrategy::Keyword }
-fn default_top_k() -> usize { 5 }
-fn default_threshold() -> f32 { 0.3 }
-fn default_audit_path() -> String { "./logs/audit.jsonl".to_string() }
-fn default_max_log_size() -> u64 { 100 }
-fn default_cache_ttl() -> u64 { 300 }
-fn default_cache_max() -> usize { 1000 }
+fn default_listen() -> String {
+    "127.0.0.1:3100".to_string()
+}
+fn default_server_name() -> String {
+    "mcplex".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_strategy() -> RouterStrategy {
+    RouterStrategy::Keyword
+}
+fn default_top_k() -> usize {
+    5
+}
+fn default_threshold() -> f32 {
+    0.3
+}
+fn default_audit_path() -> String {
+    "./logs/audit.jsonl".to_string()
+}
+fn default_max_log_size() -> u64 {
+    100
+}
+fn default_cache_ttl() -> u64 {
+    300
+}
+fn default_cache_max() -> usize {
+    1000
+}
 
 impl Default for CacheConfig {
     fn default() -> Self {
@@ -212,9 +233,7 @@ impl Default for SecurityConfig {
     }
 }
 
-impl Default for TransportType {
-    fn default() -> Self { TransportType::Auto }
-}
+
 
 /// Load configuration from a TOML file
 pub fn load_config(path: &str) -> anyhow::Result<AppConfig> {
@@ -240,7 +259,12 @@ fn expand_env_vars(content: &str) -> String {
         if let Some(end) = result[start..].find('}') {
             let var_name = &result[start + 2..start + end];
             let value = std::env::var(var_name).unwrap_or_default();
-            result = format!("{}{}{}", &result[..start], value, &result[start + end + 1..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                value,
+                &result[start + end + 1..]
+            );
         } else {
             break;
         }
@@ -281,11 +305,8 @@ fn validate_config(config: &AppConfig) -> anyhow::Result<()> {
 }
 
 /// Watch configuration file for changes and hot-reload
-pub async fn watch_config(
-    config_path: &str,
-    state: Arc<crate::AppState>,
-) -> anyhow::Result<()> {
-    use notify::{Watcher, RecursiveMode, Event, EventKind};
+pub async fn watch_config(config_path: &str, state: Arc<crate::AppState>) -> anyhow::Result<()> {
+    use notify::{Event, EventKind, RecursiveMode, Watcher};
     use std::time::Duration;
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -303,7 +324,7 @@ pub async fn watch_config(
     }
 
     let config_path = config_path.to_string();
-    
+
     // Move to async context
     tokio::task::spawn_blocking(move || {
         let _watcher = watcher; // Keep watcher alive
@@ -320,7 +341,7 @@ pub async fn watch_config(
                         Ok(new_config) => {
                             let state = state.clone();
                             let new_config_clone = new_config.clone();
-                            
+
                             // Use a runtime handle to update state
                             let rt = tokio::runtime::Handle::current();
                             rt.block_on(async {
@@ -328,11 +349,11 @@ pub async fn watch_config(
                                 *state.config.write().await = new_config_clone.clone();
 
                                 // Update security engine
-                                *state.security.write().await = 
+                                *state.security.write().await =
                                     crate::security::SecurityEngine::new(&new_config_clone);
 
                                 // Update router
-                                *state.router.write().await = 
+                                *state.router.write().await =
                                     crate::router::create_router(&new_config_clone);
 
                                 info!("✅ Configuration reloaded successfully");
@@ -341,7 +362,10 @@ pub async fn watch_config(
                             });
                         }
                         Err(e) => {
-                            error!("❌ Failed to reload config: {} — keeping previous config", e);
+                            error!(
+                                "❌ Failed to reload config: {} — keeping previous config",
+                                e
+                            );
                         }
                     }
                 }

@@ -12,11 +12,17 @@ pub fn prometheus_metrics(state: &AppState) -> String {
 
     output.push_str("# HELP mcplex_requests_total Total number of MCP requests handled\n");
     output.push_str("# TYPE mcplex_requests_total counter\n");
-    output.push_str(&format!("mcplex_requests_total {}\n", counters.total_requests));
+    output.push_str(&format!(
+        "mcplex_requests_total {}\n",
+        counters.total_requests
+    ));
 
     output.push_str("# HELP mcplex_tool_calls_total Total number of tool calls executed\n");
     output.push_str("# TYPE mcplex_tool_calls_total counter\n");
-    output.push_str(&format!("mcplex_tool_calls_total {}\n", counters.total_tool_calls));
+    output.push_str(&format!(
+        "mcplex_tool_calls_total {}\n",
+        counters.total_tool_calls
+    ));
 
     output.push_str("# HELP mcplex_errors_total Total number of errors\n");
     output.push_str("# TYPE mcplex_errors_total counter\n");
@@ -24,11 +30,17 @@ pub fn prometheus_metrics(state: &AppState) -> String {
 
     output.push_str("# HELP mcplex_tokens_saved_total Total tokens saved via routing\n");
     output.push_str("# TYPE mcplex_tokens_saved_total counter\n");
-    output.push_str(&format!("mcplex_tokens_saved_total {}\n", counters.total_tokens_saved));
+    output.push_str(&format!(
+        "mcplex_tokens_saved_total {}\n",
+        counters.total_tokens_saved
+    ));
 
     output.push_str("# HELP mcplex_routing_queries_total Total routing queries\n");
     output.push_str("# TYPE mcplex_routing_queries_total counter\n");
-    output.push_str(&format!("mcplex_routing_queries_total {}\n", counters.total_routing_queries));
+    output.push_str(&format!(
+        "mcplex_routing_queries_total {}\n",
+        counters.total_routing_queries
+    ));
 
     output.push_str("\n# HELP mcplex_tool_invocations_total Tool invocations by tool name\n");
     output.push_str("# TYPE mcplex_tool_invocations_total counter\n");
@@ -53,15 +65,18 @@ pub fn prometheus_metrics(state: &AppState) -> String {
     for (name, stats) in &tool_stats {
         output.push_str(&format!(
             "mcplex_tool_duration_ms{{tool=\"{}\",quantile=\"0.5\"}} {}\n",
-            name, stats.p50()
+            name,
+            stats.p50()
         ));
         output.push_str(&format!(
             "mcplex_tool_duration_ms{{tool=\"{}\",quantile=\"0.95\"}} {}\n",
-            name, stats.p95()
+            name,
+            stats.p95()
         ));
         output.push_str(&format!(
             "mcplex_tool_duration_ms{{tool=\"{}\",quantile=\"0.99\"}} {}\n",
-            name, stats.p99()
+            name,
+            stats.p99()
         ));
     }
 

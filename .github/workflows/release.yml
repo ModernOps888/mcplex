@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   build:
+    name: Build (${{ matrix.target }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -35,6 +37,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --all-features
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
@@ -68,10 +75,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: MCPlex ${{ github.ref_name }}
+          generate_release_notes: true
           body: |
             ## MCPlex ${{ github.ref_name }}
 
             **The MCP Smart Gateway** — Semantic tool routing, security guardrails, and real-time observability for AI agents.
+
+            ### What's New
+            - 🔌 **Persistent stdio connections** — long-lived child processes with multiplexed JSON-RPC
+            - 🤝 **Proper MCP handshake** — `initialize` + `notifications/initialized` for all transports
+            - 📖 **Full resource support** — discovery, listing, and reading from upstream servers
+            - 💬 **Full prompt support** — discovery, listing, and `prompts/get` forwarding
+            - 📡 **Real SSE streaming** — live server status events with keepalive
+            - 📦 **Response caching** — auto-detect read-only tools, configurable TTL
+            - 🔑 **Multi-tenant API keys** — key-to-role mapping for shared deployments
+            - 🛡️ **RBAC + Audit** — role-based tool access control with structured audit logs
 
             ### Downloads
 
@@ -85,10 +103,10 @@ jobs:
             ### Quick Start
             ```bash
             chmod +x mcplex-*  # Unix only
-            ./mcplex-linux-x86_64 --help
+            ./mcplex-linux-x86_64 --config mcplex.toml
             ```
 
-            See [README](https://github.com/ModernOps888/mcplex#readme) for full docs.
+            See [README](https://github.com/ModernOps888/mcplex#readme) for full documentation.
           files: |
             artifacts/**/*
           draft: false

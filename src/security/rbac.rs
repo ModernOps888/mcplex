@@ -1,8 +1,8 @@
 // MCPlex — Role-Based Access Control
 // Maps roles to tool permissions using glob patterns
 
-use std::collections::HashMap;
 use crate::config::RoleConfig;
+use std::collections::HashMap;
 
 /// RBAC engine for tool access control
 pub struct RbacEngine {
@@ -60,12 +60,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     glob_match_recursive(&pattern_chars, &text_chars, 0, 0)
 }
 
-fn glob_match_recursive(
-    pattern: &[char],
-    text: &[char],
-    pi: usize,
-    ti: usize,
-) -> bool {
+fn glob_match_recursive(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {
     if pi == pattern.len() && ti == text.len() {
         return true;
     }
@@ -115,18 +110,27 @@ mod tests {
     #[test]
     fn test_rbac() {
         let mut roles = HashMap::new();
-        roles.insert("developer".to_string(), RoleConfig {
-            allowed_tools: vec!["github/*".to_string(), "database/query_*".to_string()],
-            blocked_tools: vec![],
-        });
-        roles.insert("admin".to_string(), RoleConfig {
-            allowed_tools: vec!["*".to_string()],
-            blocked_tools: vec![],
-        });
-        roles.insert("readonly".to_string(), RoleConfig {
-            allowed_tools: vec!["*/list_*".to_string(), "*/get_*".to_string()],
-            blocked_tools: vec!["*/delete_*".to_string()],
-        });
+        roles.insert(
+            "developer".to_string(),
+            RoleConfig {
+                allowed_tools: vec!["github/*".to_string(), "database/query_*".to_string()],
+                blocked_tools: vec![],
+            },
+        );
+        roles.insert(
+            "admin".to_string(),
+            RoleConfig {
+                allowed_tools: vec!["*".to_string()],
+                blocked_tools: vec![],
+            },
+        );
+        roles.insert(
+            "readonly".to_string(),
+            RoleConfig {
+                allowed_tools: vec!["*/list_*".to_string(), "*/get_*".to_string()],
+                blocked_tools: vec!["*/delete_*".to_string()],
+            },
+        );
 
         let engine = RbacEngine::new(&roles);
 

@@ -5,21 +5,21 @@
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 mod config;
+mod observe;
 mod protocol;
 mod router;
 mod security;
-mod observe;
 
 use config::AppConfig;
-use observe::metrics::MetricsCollector;
 use observe::dashboard::DashboardServer;
-use protocol::multiplexer::Multiplexer;
+use observe::metrics::MetricsCollector;
 use protocol::cache::ToolCache;
-use security::SecurityEngine;
+use protocol::multiplexer::Multiplexer;
 use router::ToolRouter;
+use security::SecurityEngine;
 
 /// Shared application state accessible across all components
 pub struct AppState {
@@ -90,7 +90,14 @@ async fn main() -> anyhow::Result<()> {
     if cli.check {
         info!("✅ Configuration is valid!");
         info!("   Gateway: {}", app_config.gateway.listen);
-        info!("   Dashboard: {}", app_config.gateway.dashboard.as_deref().unwrap_or("disabled"));
+        info!(
+            "   Dashboard: {}",
+            app_config
+                .gateway
+                .dashboard
+                .as_deref()
+                .unwrap_or("disabled")
+        );
         info!("   Servers: {}", app_config.servers.len());
         info!("   Router: {:?}", app_config.router.strategy);
         return Ok(());
@@ -103,9 +110,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize security engine
     let security = SecurityEngine::new(&app_config);
-    info!("🔒 Security engine initialized (RBAC: {}, Audit: {})",
-        app_config.security.enable_rbac,
-        app_config.security.enable_audit_log
+    info!(
+        "🔒 Security engine initialized (RBAC: {}, Audit: {})",
+        app_config.security.enable_rbac, app_config.security.enable_audit_log
     );
 
     // Initialize the multiplexer
@@ -114,7 +121,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize the router
     let router = router::create_router(&app_config);
-    info!("🧠 Router initialized: {:?} (top_k={})", app_config.router.strategy, app_config.router.top_k);
+    info!(
+        "🧠 Router initialized: {:?} (top_k={})",
+        app_config.router.strategy, app_config.router.top_k
+    );
 
     // Initialize cache
     let cache = ToolCache::new(
@@ -123,13 +133,18 @@ async fn main() -> anyhow::Result<()> {
         app_config.cache.patterns.clone(),
     );
     if app_config.cache.enabled {
-        info!("📦 Response cache enabled (TTL: {}s, max: {} entries)",
-            app_config.cache.ttl_seconds, app_config.cache.max_entries);
+        info!(
+            "📦 Response cache enabled (TTL: {}s, max: {} entries)",
+            app_config.cache.ttl_seconds, app_config.cache.max_entries
+        );
     }
 
     // Multi-tenant API keys
     if !app_config.api_keys.is_empty() {
-        info!("🔑 {} API key(s) configured for multi-tenant access", app_config.api_keys.len());
+        info!(
+            "🔑 {} API key(s) configured for multi-tenant access",
+            app_config.api_keys.len()
+        );
     }
 
     // Build shared state
@@ -158,7 +173,9 @@ async fn main() -> anyhow::Result<()> {
     let gateway_addr = app_config.gateway.listen.clone();
     let state_for_gateway = Arc::clone(&state);
     let gateway_handle = tokio::spawn(async move {
-        if let Err(e) = protocol::transport::start_gateway_server(&gateway_addr, state_for_gateway).await {
+        if let Err(e) =
+            protocol::transport::start_gateway_server(&gateway_addr, state_for_gateway).await
+        {
             error!("Gateway server error: {}", e);
         }
     });
@@ -175,7 +192,10 @@ async fn main() -> anyhow::Result<()> {
         info!("📊 Dashboard available at http://{}", dashboard_addr);
     }
 
-    info!("⚡ MCPlex gateway listening on {}", app_config.gateway.listen);
+    info!(
+        "⚡ MCPlex gateway listening on {}",
+        app_config.gateway.listen
+    );
     info!("   Press Ctrl+C to stop");
 
     // Wait for shutdown signal
@@ -200,7 +220,7 @@ fn print_banner() {
     ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗  ║
     ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝  ║
     ║                                                  ║
-    ║     The MCP Smart Gateway — v0.1.0               ║
+    ║     The MCP Smart Gateway — v0.2.0               ║
     ║     Semantic Routing • Security • Observability  ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝

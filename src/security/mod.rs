@@ -1,9 +1,9 @@
 // MCPlex — Security Engine
 // RBAC, audit logging, and tool allowlist/blocklist enforcement
 
-pub mod rbac;
-pub mod audit;
 pub mod allowlist;
+pub mod audit;
+pub mod rbac;
 
 use crate::config::AppConfig;
 use crate::protocol::ToolCallParams;
@@ -61,7 +61,8 @@ impl SecurityEngine {
         duration_ms: u64,
     ) {
         if self.audit_enabled {
-            self.audit.log_tool_call(tool_name, server_name, params, duration_ms);
+            self.audit
+                .log_tool_call(tool_name, server_name, params, duration_ms);
         }
     }
 

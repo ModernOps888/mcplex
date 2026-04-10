@@ -1,6 +1,6 @@
 [package]
 name = "mcplex"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "MCPlex - The MCP Smart Gateway. Semantic tool routing, security guardrails, and real-time observability for AI agents."
 license = "MIT"
@@ -15,7 +15,7 @@ authors = ["ModernOps888"]
 tokio = { version = "1", features = ["full"] }
 
 # Web framework for dashboard + HTTP transport
-axum = "0.8"
+axum = { version = "0.8", features = ["default"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
@@ -36,6 +36,10 @@ notify = "7"
 
 # HTTP client for streamable HTTP transport
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# SSE streaming for Streamable HTTP transport
+async-stream = "0.3"
+tokio-stream = "0.1"
 
 # UUID for trace IDs
 uuid = { version = "1", features = ["v4"] }

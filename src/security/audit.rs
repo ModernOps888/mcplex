@@ -1,11 +1,11 @@
 // MCPlex — Audit Logger
 // Structured JSON audit logging with automatic file rotation
 
-use tracing::{info, error};
 use std::io::Write;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{error, info};
 
 use crate::protocol::ToolCallParams;
 
@@ -46,15 +46,20 @@ impl AuditLogger {
         let (writer, current_size) = if enabled {
             match Self::open_log_file(log_path) {
                 Ok(w) => {
-                    let size = std::fs::metadata(log_path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    info!("📝 Audit log: {} (max {}MB, current {:.1}MB)", 
-                        log_path, max_size_mb, size as f64 / 1_048_576.0);
+                    let size = std::fs::metadata(log_path).map(|m| m.len()).unwrap_or(0);
+                    info!(
+                        "📝 Audit log: {} (max {}MB, current {:.1}MB)",
+                        log_path,
+                        max_size_mb,
+                        size as f64 / 1_048_576.0
+                    );
                     (Mutex::new(Some(w)), AtomicU64::new(size))
                 }
                 Err(e) => {
-                    error!("Failed to open audit log '{}': {} — audit logging disabled", log_path, e);
+                    error!(
+                        "Failed to open audit log '{}': {} — audit logging disabled",
+                        log_path, e
+                    );
                     (Mutex::new(None), AtomicU64::new(0))
                 }
             }
@@ -95,8 +100,11 @@ impl AuditLogger {
                 return;
             }
 
-            info!("🔄 Rotating audit log ({:.1}MB >= {}MB limit)", 
-                size as f64 / 1_048_576.0, self.max_size_bytes / 1_048_576);
+            info!(
+                "🔄 Rotating audit log ({:.1}MB >= {}MB limit)",
+                size as f64 / 1_048_576.0,
+                self.max_size_bytes / 1_048_576
+            );
 
             // Flush and close current writer
             if let Some(ref mut w) = *guard {
@@ -198,19 +206,28 @@ fn now_iso8601() -> String {
     let seconds = remaining_secs % 60;
     let days = secs / 86400;
     let (year, month, day) = days_to_ymd(days);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let mut y = 1970u64;
     let mut remaining = days;
     loop {
-        let diy = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
-        if remaining < diy { break; }
+        let diy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
+            366
+        } else {
+            365
+        };
+        if remaining < diy {
+            break;
+        }
         remaining -= diy;
         y += 1;
     }
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let dim = if leap {
         [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     } else {
@@ -218,7 +235,10 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     };
     let mut m = 0;
     for (i, &d) in dim.iter().enumerate() {
-        if remaining < d { m = i + 1; break; }
+        if remaining < d {
+            m = i + 1;
+            break;
+        }
         remaining -= d;
     }
     (y, m as u64, remaining + 1)
@@ -238,7 +258,7 @@ mod tests {
         let _ = std::fs::remove_file(&log_path);
 
         let logger = AuditLogger::new(log_path_str, true);
-        
+
         let params = ToolCallParams {
             name: "test_tool".to_string(),
             arguments: Some(serde_json::json!({"key": "value"})),

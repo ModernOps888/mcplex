@@ -1,11 +1,18 @@
 // MCPlex — Multiplexer
-// Aggregates multiple MCP servers into a unified interface
+// Aggregates multiple MCP servers into a unified interface.
+//
+// HTTP servers: stateless JSON-RPC requests via reqwest (connection pooling built-in).
+// Stdio servers: persistent child processes via StdioConnection (long-lived, multiplexed).
 
 use std::collections::HashMap;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::config::{AppConfig, ServerConfig};
-use crate::protocol::{RegisteredTool, ToolDefinition, ToolCallParams};
+use crate::protocol::stdio::StdioConnection;
+use crate::protocol::{
+    PromptDefinition, RegisteredPrompt, RegisteredResource, RegisteredTool, ResourceDefinition,
+    ToolCallParams, ToolDefinition,
+};
 
 /// Represents a connected upstream MCP server
 #[derive(Debug)]
@@ -13,26 +20,47 @@ pub struct UpstreamServer {
     pub name: String,
     pub config: ServerConfig,
     pub tools: Vec<ToolDefinition>,
-    pub resources: Vec<serde_json::Value>,
-    pub prompts: Vec<serde_json::Value>,
+    pub resources: Vec<ResourceDefinition>,
+    pub prompts: Vec<PromptDefinition>,
     pub connected: bool,
 }
 
 /// The Multiplexer manages connections to all upstream MCP servers
 pub struct Multiplexer {
     servers: HashMap<String, UpstreamServer>,
+    /// Persistent connections to stdio servers (keyed by server name)
+    stdio_connections: HashMap<String, StdioConnection>,
     /// Lookup: tool_name → server_name
     tool_index: HashMap<String, String>,
+    /// Lookup: resource_uri → server_name
+    resource_index: HashMap<String, String>,
+    /// Lookup: prompt_name → server_name
+    prompt_index: HashMap<String, String>,
     /// All registered tools with their server origin
     all_tools: Vec<RegisteredTool>,
+    /// All registered resources with their server origin
+    all_resources: Vec<RegisteredResource>,
+    /// All registered prompts with their server origin
+    all_prompts: Vec<RegisteredPrompt>,
 }
 
 impl Multiplexer {
-    /// Create a new multiplexer from configuration
+    /// Create a new multiplexer from configuration.
+    ///
+    /// For each enabled server:
+    /// - HTTP: sends initialize + tools/list + resources/list + prompts/list
+    /// - Stdio: spawns a persistent child, performs the MCP handshake, discovers capabilities
+    ///
+    /// `connected` is only set to `true` if discovery actually succeeds.
     pub async fn new(config: &AppConfig) -> anyhow::Result<Self> {
         let mut servers = HashMap::new();
+        let mut stdio_connections = HashMap::new();
         let mut tool_index = HashMap::new();
+        let mut resource_index = HashMap::new();
+        let mut prompt_index = HashMap::new();
         let mut all_tools = Vec::new();
+        let mut all_resources = Vec::new();
+        let mut all_prompts = Vec::new();
 
         for server_config in &config.servers {
             if !server_config.enabled {
@@ -40,20 +68,58 @@ impl Multiplexer {
                 continue;
             }
 
-            // Try to discover tools from the server
-            let tools = discover_tools(server_config).await;
+            // Discover capabilities — transport-specific
+            let (tools, resources, prompts, connected) = if server_config.url.is_some() {
+                // ── HTTP transport ──────────────────────────────
+                discover_http_server(server_config).await
+            } else if server_config.command.is_some() {
+                // ── Stdio transport (persistent connection) ────
+                discover_stdio_server(server_config, &mut stdio_connections).await
+            } else {
+                warn!(
+                    "Server '{}' has neither 'url' nor 'command' configured",
+                    server_config.name
+                );
+                (Vec::new(), Vec::new(), Vec::new(), false)
+            };
 
-            info!("📡 Server '{}': {} tools discovered",
-                server_config.name, tools.len());
+            if connected {
+                info!(
+                    "📡 Server '{}': {} tools, {} resources, {} prompts",
+                    server_config.name,
+                    tools.len(),
+                    resources.len(),
+                    prompts.len()
+                );
+            } else {
+                warn!(
+                    "⚠️  Server '{}': failed to connect — marked as disconnected",
+                    server_config.name
+                );
+            }
 
+            // Index tools
             for tool in &tools {
                 let registered = RegisteredTool::new(tool.clone(), &server_config.name);
-                
-                // Index by both short name and FQN
                 tool_index.insert(tool.name.clone(), server_config.name.clone());
                 tool_index.insert(registered.fqn.clone(), server_config.name.clone());
-                
                 all_tools.push(registered);
+            }
+
+            // Index resources
+            for resource in &resources {
+                let registered = RegisteredResource::new(resource.clone(), &server_config.name);
+                resource_index.insert(resource.uri.clone(), server_config.name.clone());
+                resource_index.insert(registered.fqn.clone(), server_config.name.clone());
+                all_resources.push(registered);
+            }
+
+            // Index prompts
+            for prompt in &prompts {
+                let registered = RegisteredPrompt::new(prompt.clone(), &server_config.name);
+                prompt_index.insert(prompt.name.clone(), server_config.name.clone());
+                prompt_index.insert(registered.fqn.clone(), server_config.name.clone());
+                all_prompts.push(registered);
             }
 
             servers.insert(
@@ -62,17 +128,33 @@ impl Multiplexer {
                     name: server_config.name.clone(),
                     config: server_config.clone(),
                     tools,
-                    resources: Vec::new(),
-                    prompts: Vec::new(),
-                    connected: true,
+                    resources,
+                    prompts,
+                    connected,
                 },
+            );
+        }
+
+        let connected_count = servers.values().filter(|s| s.connected).count();
+        let total_count = servers.len();
+        if connected_count < total_count {
+            warn!(
+                "🔌 Connected to {}/{} MCP server(s) ({} failed)",
+                connected_count,
+                total_count,
+                total_count - connected_count
             );
         }
 
         Ok(Self {
             servers,
+            stdio_connections,
             tool_index,
+            resource_index,
+            prompt_index,
             all_tools,
+            all_resources,
+            all_prompts,
         })
     }
 
@@ -81,233 +163,458 @@ impl Multiplexer {
         self.all_tools.clone()
     }
 
+    /// Get all registered resources across all servers
+    pub fn get_all_resources(&self) -> Vec<RegisteredResource> {
+        self.all_resources.clone()
+    }
+
+    /// Get all registered prompts across all servers
+    pub fn get_all_prompts(&self) -> Vec<RegisteredPrompt> {
+        self.all_prompts.clone()
+    }
+
     /// Find which server owns a given tool
     pub fn find_tool_server(&self, tool_name: &str) -> Option<String> {
         self.tool_index.get(tool_name).cloned()
     }
 
-    /// Execute a tool call on a specific server
+    /// Find which server owns a given resource
+    pub fn find_resource_server(&self, resource_uri: &str) -> Option<String> {
+        self.resource_index.get(resource_uri).cloned()
+    }
+
+    /// Find which server owns a given prompt
+    pub fn find_prompt_server(&self, prompt_name: &str) -> Option<String> {
+        self.prompt_index.get(prompt_name).cloned()
+    }
+
+    // ─────────────────────────────────────────────
+    // Tool Calls
+    // ─────────────────────────────────────────────
+
+    /// Execute a tool call, routing to the correct upstream server
     pub async fn call_tool(
         &self,
         server_name: &str,
         params: &ToolCallParams,
     ) -> anyhow::Result<serde_json::Value> {
-        let server = self.servers.get(server_name)
+        let server = self
+            .servers
+            .get(server_name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_name))?;
 
-        // Determine transport and execute
+        if !server.connected {
+            return Err(anyhow::anyhow!("Server '{}' is not connected", server_name));
+        }
+
         if let Some(ref url) = server.config.url {
-            self.call_tool_http(url, params).await
-        } else if let Some(ref _command) = server.config.command {
-            self.call_tool_stdio(server, params).await
+            call_tool_http(url, params).await
+        } else if let Some(conn) = self.stdio_connections.get(server_name) {
+            conn.send_request(
+                "tools/call",
+                serde_json::json!({
+                    "name": params.name,
+                    "arguments": params.arguments,
+                }),
+            )
+            .await
         } else {
-            Err(anyhow::anyhow!("Server '{}' has no transport configured", server_name))
+            Err(anyhow::anyhow!(
+                "No active connection for server '{}'",
+                server_name
+            ))
         }
     }
 
-    /// Call a tool via HTTP transport
-    async fn call_tool_http(
-        &self,
-        url: &str,
-        params: &ToolCallParams,
-    ) -> anyhow::Result<serde_json::Value> {
-        let client = reqwest::Client::new();
-        let request_body = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": params.name,
-                "arguments": params.arguments,
-            }
-        });
+    // ─────────────────────────────────────────────
+    // Resource Reads
+    // ─────────────────────────────────────────────
 
-        let response = client
-            .post(url)
-            .json(&request_body)
-            .send()
-            .await?;
+    /// Read a resource, routing to the correct upstream server
+    pub async fn read_resource(&self, uri: &str) -> anyhow::Result<serde_json::Value> {
+        let server_name = self
+            .find_resource_server(uri)
+            .ok_or_else(|| anyhow::anyhow!("Resource '{}' not found in any server", uri))?;
 
-        let response_body: serde_json::Value = response.json().await?;
-        
-        if let Some(result) = response_body.get("result") {
-            Ok(result.clone())
-        } else if let Some(error) = response_body.get("error") {
-            Err(anyhow::anyhow!("Upstream error: {}", error))
+        let server = self
+            .servers
+            .get(&server_name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_name))?;
+
+        if !server.connected {
+            return Err(anyhow::anyhow!("Server '{}' is not connected", server_name));
+        }
+
+        debug!("📖 Reading resource '{}' from '{}'", uri, server_name);
+
+        if let Some(ref url) = server.config.url {
+            rpc_http(url, "resources/read", serde_json::json!({ "uri": uri })).await
+        } else if let Some(conn) = self.stdio_connections.get(&server_name) {
+            conn.send_request("resources/read", serde_json::json!({ "uri": uri }))
+                .await
         } else {
-            Err(anyhow::anyhow!("Invalid response from upstream server"))
+            Err(anyhow::anyhow!(
+                "No active connection for server '{}'",
+                server_name
+            ))
         }
     }
 
-    /// Call a tool via stdio transport
-    async fn call_tool_stdio(
+    // ─────────────────────────────────────────────
+    // Prompt Gets
+    // ─────────────────────────────────────────────
+
+    /// Get a prompt, routing to the correct upstream server
+    pub async fn get_prompt(
         &self,
-        server: &UpstreamServer,
-        params: &ToolCallParams,
+        name: &str,
+        arguments: &Option<serde_json::Value>,
     ) -> anyhow::Result<serde_json::Value> {
-        let command = server.config.command.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No command configured"))?;
+        let server_name = self
+            .find_prompt_server(name)
+            .ok_or_else(|| anyhow::anyhow!("Prompt '{}' not found in any server", name))?;
 
-        // Build the JSON-RPC request
-        let request_body = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": params.name,
-                "arguments": params.arguments,
-            }
-        });
+        let server = self
+            .servers
+            .get(&server_name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_name))?;
 
-        // Parse command parts
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        if parts.is_empty() {
-            return Err(anyhow::anyhow!("Empty command"));
+        if !server.connected {
+            return Err(anyhow::anyhow!("Server '{}' is not connected", server_name));
         }
 
-        let mut cmd = tokio::process::Command::new(parts[0]);
-        if parts.len() > 1 {
-            cmd.args(&parts[1..]);
+        debug!("💬 Getting prompt '{}' from '{}'", name, server_name);
+
+        if let Some(ref url) = server.config.url {
+            rpc_http(
+                url,
+                "prompts/get",
+                serde_json::json!({
+                    "name": name,
+                    "arguments": arguments,
+                }),
+            )
+            .await
+        } else if let Some(conn) = self.stdio_connections.get(&server_name) {
+            conn.send_request(
+                "prompts/get",
+                serde_json::json!({
+                    "name": name,
+                    "arguments": arguments,
+                }),
+            )
+            .await
+        } else {
+            Err(anyhow::anyhow!(
+                "No active connection for server '{}'",
+                server_name
+            ))
         }
-
-        // Add args from config
-        cmd.args(&server.config.args);
-
-        // Set environment variables
-        for (key, value) in &server.config.env {
-            cmd.env(key, value);
-        }
-
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-
-        let mut child = cmd.spawn()?;
-
-        // Write request to stdin
-        if let Some(ref mut stdin) = child.stdin {
-            use tokio::io::AsyncWriteExt;
-            let request_str = serde_json::to_string(&request_body)? + "\n";
-            stdin.write_all(request_str.as_bytes()).await?;
-            stdin.shutdown().await?;
-        }
-
-        // Read response from stdout
-        let output = child.wait_with_output().await?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Parse the last JSON line (in case there's initialization output)
-        for line in stdout.lines().rev() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('{') {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                    if let Some(result) = parsed.get("result") {
-                        return Ok(result.clone());
-                    }
-                    if let Some(error) = parsed.get("error") {
-                        return Err(anyhow::anyhow!("Upstream error: {}", error));
-                    }
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!("No valid response from stdio server"))
-    }
-
-    /// Get all resources from all servers
-    pub fn get_all_resources(&self) -> Vec<serde_json::Value> {
-        self.servers.values()
-            .flat_map(|s| s.resources.clone())
-            .collect()
-    }
-
-    /// Read a specific resource
-    pub async fn read_resource(&self, _uri: &str) -> Option<serde_json::Value> {
-        // TODO: Route resource read to appropriate server
-        None
-    }
-
-    /// Get all prompts from all servers
-    pub fn get_all_prompts(&self) -> Vec<serde_json::Value> {
-        self.servers.values()
-            .flat_map(|s| s.prompts.clone())
-            .collect()
     }
 
     /// Get server status information
     pub fn get_server_statuses(&self) -> Vec<serde_json::Value> {
-        self.servers.values()
-            .map(|s| serde_json::json!({
-                "name": s.name,
-                "connected": s.connected,
-                "tools": s.tools.len(),
-                "transport": if s.config.url.is_some() { "http" } else { "stdio" },
-            }))
+        self.servers
+            .values()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "connected": s.connected,
+                    "tools": s.tools.len(),
+                    "resources": s.resources.len(),
+                    "prompts": s.prompts.len(),
+                    "transport": if s.config.url.is_some() { "http" } else { "stdio" },
+                })
+            })
             .collect()
     }
 }
 
-/// Discover tools from an MCP server
-async fn discover_tools(config: &ServerConfig) -> Vec<ToolDefinition> {
-    // For HTTP servers, try to initialize and list tools
-    if let Some(ref url) = config.url {
-        match discover_tools_http(url).await {
-            Ok(tools) => return tools,
-            Err(e) => {
-                warn!("Failed to discover tools from '{}' ({}): {}", config.name, url, e);
-            }
-        }
-    }
+// ═════════════════════════════════════════════════════════════
+// HTTP helpers (stateless — reqwest handles connection pooling)
+// ═════════════════════════════════════════════════════════════
 
-    // For stdio servers, we'll discover tools lazily when the server starts
-    // For now, return empty and log
-    if config.command.is_some() {
-        debug!("Stdio server '{}' — tools will be discovered on first connection", config.name);
-    }
+/// Send a generic JSON-RPC request over HTTP and return the `result`
+async fn rpc_http(
+    url: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let client = reqwest::Client::new();
+    let request_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+    });
 
-    Vec::new()
+    let response = client.post(url).json(&request_body).send().await?;
+    let body: serde_json::Value = response.json().await?;
+
+    if let Some(result) = body.get("result") {
+        Ok(result.clone())
+    } else if let Some(error) = body.get("error") {
+        Err(anyhow::anyhow!("Upstream error ({}): {}", method, error))
+    } else {
+        Err(anyhow::anyhow!(
+            "Invalid response from upstream ({})",
+            method
+        ))
+    }
 }
 
-/// Discover tools from an HTTP MCP server
-async fn discover_tools_http(url: &str) -> anyhow::Result<Vec<ToolDefinition>> {
+/// Call a tool via HTTP transport
+async fn call_tool_http(url: &str, params: &ToolCallParams) -> anyhow::Result<serde_json::Value> {
+    rpc_http(
+        url,
+        "tools/call",
+        serde_json::json!({
+            "name": params.name,
+            "arguments": params.arguments,
+        }),
+    )
+    .await
+}
+
+// ═════════════════════════════════════════════════════════════
+// Server Discovery
+// ═════════════════════════════════════════════════════════════
+
+/// Discover capabilities from an HTTP MCP server.
+/// Returns (tools, resources, prompts, connected).
+async fn discover_http_server(
+    config: &ServerConfig,
+) -> (
+    Vec<ToolDefinition>,
+    Vec<ResourceDefinition>,
+    Vec<PromptDefinition>,
+    bool,
+) {
+    let url = match config.url.as_ref() {
+        Some(u) => u,
+        None => return (Vec::new(), Vec::new(), Vec::new(), false),
+    };
+
+    match discover_http_server_inner(url, &config.name).await {
+        Ok((tools, resources, prompts)) => (tools, resources, prompts, true),
+        Err(e) => {
+            warn!(
+                "Failed to discover HTTP server '{}' ({}): {}",
+                config.name, url, e
+            );
+            (Vec::new(), Vec::new(), Vec::new(), false)
+        }
+    }
+}
+
+async fn discover_http_server_inner(
+    url: &str,
+    server_name: &str,
+) -> anyhow::Result<(
+    Vec<ToolDefinition>,
+    Vec<ResourceDefinition>,
+    Vec<PromptDefinition>,
+)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
     // Initialize
-    let init_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "mcplex",
-                "version": env!("CARGO_PKG_VERSION"),
+    let init_response: serde_json::Value = client
+        .post(url)
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "mcplex",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }
             }
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let capabilities = init_response
+        .get("result")
+        .and_then(|r| r.get("capabilities"))
+        .cloned()
+        .unwrap_or_default();
+
+    // Send initialized notification
+    let _ = client
+        .post(url)
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }))
+        .send()
+        .await;
+
+    let has_tools = capabilities.get("tools").is_some();
+    let has_resources = capabilities.get("resources").is_some();
+    let has_prompts = capabilities.get("prompts").is_some();
+
+    let tools = if has_tools {
+        paginated_list_http(&client, url, "tools/list", "tools", server_name)
+            .await
+            .and_then(|v| serde_json::from_value::<Vec<ToolDefinition>>(v).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let resources = if has_resources {
+        paginated_list_http(&client, url, "resources/list", "resources", server_name)
+            .await
+            .and_then(|v| serde_json::from_value::<Vec<ResourceDefinition>>(v).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let prompts = if has_prompts {
+        paginated_list_http(&client, url, "prompts/list", "prompts", server_name)
+            .await
+            .and_then(|v| serde_json::from_value::<Vec<PromptDefinition>>(v).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    Ok((tools, resources, prompts))
+}
+
+/// Paginated HTTP list request — follows nextCursor until exhausted
+async fn paginated_list_http(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
+    result_key: &str,
+    server_name: &str,
+) -> Option<serde_json::Value> {
+    let mut all_items: Vec<serde_json::Value> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let mut params = serde_json::json!({});
+        if let Some(ref c) = cursor {
+            params["cursor"] = serde_json::Value::String(c.clone());
         }
-    });
 
-    client.post(url).json(&init_request).send().await?;
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": method,
+            "params": params,
+        });
 
-    // List tools
-    let list_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/list",
-        "params": {}
-    });
+        let response = match client.post(url).json(&request).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed {} on '{}': {}", method, server_name, e);
+                break;
+            }
+        };
 
-    let response = client.post(url).json(&list_request).send().await?;
-    let body: serde_json::Value = response.json().await?;
+        let body: serde_json::Value = match response.json().await {
+            Ok(b) => b,
+            Err(e) => {
+                warn!("Failed to parse {} from '{}': {}", method, server_name, e);
+                break;
+            }
+        };
 
-    if let Some(result) = body.get("result") {
-        if let Some(tools) = result.get("tools") {
-            let tools: Vec<ToolDefinition> = serde_json::from_value(tools.clone())?;
-            return Ok(tools);
+        if let Some(result) = body.get("result") {
+            if let Some(items) = result.get(result_key).and_then(|v| v.as_array()) {
+                all_items.extend(items.clone());
+            }
+            cursor = result
+                .get("nextCursor")
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string());
+            if cursor.is_none() {
+                break;
+            }
+        } else {
+            break;
         }
     }
 
-    Ok(Vec::new())
+    if all_items.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Array(all_items))
+    }
+}
+
+/// Discover capabilities from a stdio MCP server by establishing a persistent connection.
+/// The connection is kept alive in `stdio_connections` for runtime use.
+/// Returns (tools, resources, prompts, connected).
+async fn discover_stdio_server(
+    config: &ServerConfig,
+    stdio_connections: &mut HashMap<String, StdioConnection>,
+) -> (
+    Vec<ToolDefinition>,
+    Vec<ResourceDefinition>,
+    Vec<PromptDefinition>,
+    bool,
+) {
+    match StdioConnection::connect(config).await {
+        Ok((conn, capabilities)) => {
+            let has_tools = capabilities.get("tools").is_some();
+            let has_resources = capabilities.get("resources").is_some();
+            let has_prompts = capabilities.get("prompts").is_some();
+
+            // Discover tools
+            let tools = if has_tools {
+                conn.send_request("tools/list", serde_json::json!({}))
+                    .await
+                    .ok()
+                    .and_then(|r| r.get("tools").cloned())
+                    .and_then(|v| serde_json::from_value::<Vec<ToolDefinition>>(v).ok())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            // Discover resources
+            let resources = if has_resources {
+                conn.send_request("resources/list", serde_json::json!({}))
+                    .await
+                    .ok()
+                    .and_then(|r| r.get("resources").cloned())
+                    .and_then(|v| serde_json::from_value::<Vec<ResourceDefinition>>(v).ok())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            // Discover prompts
+            let prompts = if has_prompts {
+                conn.send_request("prompts/list", serde_json::json!({}))
+                    .await
+                    .ok()
+                    .and_then(|r| r.get("prompts").cloned())
+                    .and_then(|v| serde_json::from_value::<Vec<PromptDefinition>>(v).ok())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            // Keep the connection alive for runtime use
+            stdio_connections.insert(config.name.clone(), conn);
+
+            (tools, resources, prompts, true)
+        }
+        Err(e) => {
+            warn!("Failed to connect to stdio server '{}': {}", config.name, e);
+            (Vec::new(), Vec::new(), Vec::new(), false)
+        }
+    }
 }

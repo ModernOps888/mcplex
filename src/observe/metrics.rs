@@ -145,7 +145,11 @@ impl MetricsCollector {
         let now = now_iso8601();
 
         let metric_event = match &event {
-            EventType::Request { method, duration_ms, success } => {
+            EventType::Request {
+                method,
+                duration_ms,
+                success,
+            } => {
                 if let Ok(mut counters) = self.counters.write() {
                     counters.total_requests += 1;
                     if !success {
@@ -163,7 +167,12 @@ impl MetricsCollector {
                     details: None,
                 }
             }
-            EventType::ToolCall { tool_name, server_name, duration_ms, success } => {
+            EventType::ToolCall {
+                tool_name,
+                server_name,
+                duration_ms,
+                success,
+            } => {
                 if let Ok(mut counters) = self.counters.write() {
                     counters.total_tool_calls += 1;
                     if !success {
@@ -171,7 +180,8 @@ impl MetricsCollector {
                     }
                 }
                 if let Ok(mut stats) = self.tool_stats.write() {
-                    stats.entry(tool_name.clone())
+                    stats
+                        .entry(tool_name.clone())
                         .or_insert_with(|| ToolStats::new(tool_name))
                         .record(*duration_ms, *success);
                 }
@@ -205,7 +215,11 @@ impl MetricsCollector {
                     })),
                 }
             }
-            EventType::Routing { query, total_tools, selected_tools } => {
+            EventType::Routing {
+                query,
+                total_tools,
+                selected_tools,
+            } => {
                 let tokens_saved = (total_tools - selected_tools) * 200;
                 if let Ok(mut counters) = self.counters.write() {
                     counters.total_routing_queries += 1;
@@ -265,19 +279,22 @@ impl MetricsCollector {
         let tool_stats = self.get_tool_stats();
         let recent_events = self.get_recent_events(50);
 
-        let tools: Vec<serde_json::Value> = tool_stats.values()
-            .map(|s| serde_json::json!({
-                "name": s.name,
-                "invocations": s.invocation_count,
-                "successes": s.success_count,
-                "errors": s.error_count,
-                "avg_ms": format!("{:.1}", s.avg_duration_ms()),
-                "p50_ms": s.p50(),
-                "p95_ms": s.p95(),
-                "p99_ms": s.p99(),
-                "min_ms": if s.min_duration_ms == u64::MAX { 0 } else { s.min_duration_ms },
-                "max_ms": s.max_duration_ms,
-            }))
+        let tools: Vec<serde_json::Value> = tool_stats
+            .values()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "invocations": s.invocation_count,
+                    "successes": s.success_count,
+                    "errors": s.error_count,
+                    "avg_ms": format!("{:.1}", s.avg_duration_ms()),
+                    "p50_ms": s.p50(),
+                    "p95_ms": s.p95(),
+                    "p99_ms": s.p99(),
+                    "min_ms": if s.min_duration_ms == u64::MAX { 0 } else { s.min_duration_ms },
+                    "max_ms": s.max_duration_ms,
+                })
+            })
             .collect();
 
         let now_epoch = SystemTime::now()
@@ -341,7 +358,10 @@ fn now_iso8601() -> String {
 
     // Calculate year/month/day from days since epoch (1970-01-01)
     let (year, month, day) = days_to_ymd(days);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 fn days_to_ymd(days: u64) -> (u64, u64, u64) {
@@ -377,5 +397,5 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap_year(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }

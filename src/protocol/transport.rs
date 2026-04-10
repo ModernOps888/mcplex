@@ -1,26 +1,23 @@
 // MCPlex — Transport Layer
 // Handles stdio and Streamable HTTP transports for both client-facing and upstream connections
 
-use std::sync::Arc;
 use axum::{
-    Router, Json,
     extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
+    Json, Router,
 };
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
-use crate::AppState;
-use crate::protocol::*;
 use crate::observe::metrics::EventType;
+use crate::protocol::*;
+use crate::AppState;
 
 /// Start the main MCP gateway HTTP server
-pub async fn start_gateway_server(
-    addr: &str,
-    state: Arc<AppState>,
-) -> anyhow::Result<()> {
+pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::Result<()> {
     let config = state.config.read().await;
     let has_api_key = config.gateway.api_key.is_some();
     let api_key = config.gateway.api_key.clone();
@@ -80,10 +77,10 @@ async fn handle_mcp_request(
         "initialize" => handle_initialize(&state, &request).await,
         "initialized" => {
             // Notification — no response needed
-            return (StatusCode::OK, Json(JsonRpcResponse::success(
-                request_id,
-                serde_json::json!({}),
-            )));
+            return (
+                StatusCode::OK,
+                Json(JsonRpcResponse::success(request_id, serde_json::json!({}))),
+            );
         }
         "tools/list" => handle_tools_list(&state, &request).await,
         "tools/call" => handle_tools_call(&state, &request).await,
@@ -109,24 +106,65 @@ async fn handle_mcp_request(
         success: response.error.is_none(),
     });
 
-    debug!("📤 MCP response: method={} elapsed={}ms", method, elapsed.as_millis());
+    debug!(
+        "📤 MCP response: method={} elapsed={}ms",
+        method,
+        elapsed.as_millis()
+    );
 
     (StatusCode::OK, Json(response))
 }
 
-/// Handle SSE connections (for streaming transport)
-async fn handle_sse(
-    State(_state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    // SSE endpoint for clients that need event streaming
-    (StatusCode::OK, "event: endpoint\ndata: /mcp\n\n")
+/// Handle SSE connections (Streamable HTTP transport)
+///
+/// Implements the MCP Streamable HTTP transport SSE endpoint.
+/// Clients connect here to receive the MCP endpoint URL, then send
+/// JSON-RPC requests to that endpoint. The server pushes events
+/// for notifications like tools/list_changed.
+async fn handle_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    // Create a stream that:
+    // 1. Sends the endpoint event immediately
+    // 2. Sends periodic keepalive pings
+    // 3. Could send notifications (tools/list_changed, etc.)
+
+    let initial_event = Event::default().event("endpoint").data("/mcp");
+
+    let stream = async_stream::stream! {
+        // Send the endpoint URL first
+        yield Ok::<_, std::convert::Infallible>(initial_event);
+
+        // Then send periodic server status events
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+
+        loop {
+            interval.tick().await;
+
+            let multiplexer = state.multiplexer.read().await;
+            let statuses = multiplexer.get_server_statuses();
+            let tool_count = multiplexer.get_all_tools().len();
+            drop(multiplexer);
+
+            let status_data = serde_json::json!({
+                "type": "server_status",
+                "servers": statuses,
+                "total_tools": tool_count,
+            });
+
+            let event = Event::default()
+                .event("status")
+                .data(serde_json::to_string(&status_data).unwrap_or_default());
+
+            yield Ok(event);
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 /// Handle initialize request
-async fn handle_initialize(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
+async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let config = state.config.read().await;
 
     let result = InitializeResult {
@@ -150,10 +188,7 @@ async fn handle_initialize(
 
 /// Handle tools/list — the core of MCPlex magic
 /// Instead of dumping ALL tools, we route intelligently
-async fn handle_tools_list(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
+async fn handle_tools_list(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
     let router = state.router.read().await;
     let config = state.config.read().await;
@@ -162,7 +197,8 @@ async fn handle_tools_list(
     let all_tools = multiplexer.get_all_tools();
 
     // Check if there's a cursor/query hint for filtering
-    let query_hint = request.params
+    let query_hint = request
+        .params
         .as_ref()
         .and_then(|p| p.get("_mcplex_query"))
         .and_then(|q| q.as_str())
@@ -171,15 +207,19 @@ async fn handle_tools_list(
     // Apply routing if a query hint is provided
     let filtered_tools = if let Some(ref query) = query_hint {
         let routed = router.route(query, &all_tools, config.router.top_k);
-        info!("🧠 Routed {} → {} tools (from {} total)",
-            query, routed.len(), all_tools.len());
-        
+        info!(
+            "🧠 Routed {} → {} tools (from {} total)",
+            query,
+            routed.len(),
+            all_tools.len()
+        );
+
         state.metrics.record_event(EventType::Routing {
             query: query.clone(),
             total_tools: all_tools.len(),
             selected_tools: routed.len(),
         });
-        
+
         routed
     } else {
         all_tools.clone()
@@ -187,14 +227,14 @@ async fn handle_tools_list(
 
     // Apply security filtering
     let security = state.security.read().await;
-    let visible_tools: Vec<&RegisteredTool> = filtered_tools.iter()
+    let visible_tools: Vec<&RegisteredTool> = filtered_tools
+        .iter()
         .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
         .collect();
 
     // Build the response
-    let tool_defs: Vec<ToolDefinition> = visible_tools.iter()
-        .map(|t| t.definition.clone())
-        .collect();
+    let tool_defs: Vec<ToolDefinition> =
+        visible_tools.iter().map(|t| t.definition.clone()).collect();
 
     let result = ToolsListResult {
         tools: tool_defs,
@@ -213,14 +253,13 @@ async fn handle_tools_list(
 }
 
 /// Handle tools/call — execute a tool on the appropriate upstream server
-async fn handle_tools_call(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
+async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let start = std::time::Instant::now();
 
     // Parse tool call params
-    let params: ToolCallParams = match request.params.as_ref()
+    let params: ToolCallParams = match request
+        .params
+        .as_ref()
         .and_then(|p| serde_json::from_value(p.clone()).ok())
     {
         Some(p) => p,
@@ -236,7 +275,9 @@ async fn handle_tools_call(
     let tool_name = params.name.clone();
 
     // Resolve role from request headers (via _mcplex_role param or default)
-    let role = request.params.as_ref()
+    let role = request
+        .params
+        .as_ref()
         .and_then(|p| p.get("_mcplex_role"))
         .and_then(|r| r.as_str())
         .map(|s| s.to_string());
@@ -244,7 +285,10 @@ async fn handle_tools_call(
     // Security check (with role if available)
     let security = state.security.read().await;
     if !security.is_tool_allowed(&tool_name, role.as_deref()) {
-        warn!("🚫 Tool call blocked by security policy: {} (role: {:?})", tool_name, role);
+        warn!(
+            "🚫 Tool call blocked by security policy: {} (role: {:?})",
+            tool_name, role
+        );
         security.audit_blocked_call(&tool_name, "security_policy");
         return JsonRpcResponse::error(
             request.id.clone(),
@@ -298,7 +342,9 @@ async fn handle_tools_call(
                 Ok(result_value) => {
                     // Store in cache if enabled
                     if cache_enabled {
-                        state.cache.put(&tool_name, &params.arguments, result_value.clone());
+                        state
+                            .cache
+                            .put(&tool_name, &params.arguments, result_value.clone());
                     }
                     JsonRpcResponse::success(request.id.clone(), result_value)
                 }
@@ -323,67 +369,115 @@ async fn handle_tools_call(
     }
 }
 
-/// Handle resources/list
-async fn handle_resources_list(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
+/// Handle resources/list — aggregate resources from all upstream servers
+async fn handle_resources_list(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
-    let resources = multiplexer.get_all_resources();
-    
+    let all_resources = multiplexer.get_all_resources();
+
+    let resource_defs: Vec<ResourceDefinition> =
+        all_resources.iter().map(|r| r.definition.clone()).collect();
+
+    let result = ResourcesListResult {
+        resources: resource_defs,
+        next_cursor: None,
+    };
+
     JsonRpcResponse::success(
         request.id.clone(),
-        serde_json::json!({ "resources": resources }),
+        serde_json::to_value(result).unwrap_or_default(),
     )
 }
 
-/// Handle resources/read
-async fn handle_resources_read(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
-    // Forward to appropriate server
+/// Handle resources/read — forward to the appropriate upstream server
+async fn handle_resources_read(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let uri = match request
+        .params
+        .as_ref()
+        .and_then(|p| p.get("uri"))
+        .and_then(|u| u.as_str())
+    {
+        Some(u) => u.to_string(),
+        None => {
+            return JsonRpcResponse::error(
+                request.id.clone(),
+                error_codes::INVALID_PARAMS,
+                "Missing 'uri' parameter in resources/read request",
+            );
+        }
+    };
+
     let multiplexer = state.multiplexer.read().await;
-    
-    if let Some(params) = &request.params {
-        if let Some(uri) = params.get("uri").and_then(|u| u.as_str()) {
-            if let Some(result) = multiplexer.read_resource(uri).await {
-                return JsonRpcResponse::success(request.id.clone(), result);
-            }
+
+    match multiplexer.read_resource(&uri).await {
+        Ok(result) => JsonRpcResponse::success(request.id.clone(), result),
+        Err(e) => {
+            warn!("Resource read failed for '{}': {}", uri, e);
+            JsonRpcResponse::error(
+                request.id.clone(),
+                error_codes::INVALID_PARAMS,
+                &format!("Resource '{}' not found or read failed: {}", uri, e),
+            )
         }
     }
-    
-    JsonRpcResponse::error(
-        request.id.clone(),
-        error_codes::INVALID_PARAMS,
-        "Resource not found",
-    )
 }
 
-/// Handle prompts/list
-async fn handle_prompts_list(
-    state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
+/// Handle prompts/list — aggregate prompts from all upstream servers
+async fn handle_prompts_list(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
-    let prompts = multiplexer.get_all_prompts();
-    
+    let all_prompts = multiplexer.get_all_prompts();
+
+    let prompt_defs: Vec<PromptDefinition> =
+        all_prompts.iter().map(|p| p.definition.clone()).collect();
+
+    let result = PromptsListResult {
+        prompts: prompt_defs,
+        next_cursor: None,
+    };
+
     JsonRpcResponse::success(
         request.id.clone(),
-        serde_json::json!({ "prompts": prompts }),
+        serde_json::to_value(result).unwrap_or_default(),
     )
 }
 
-/// Handle prompts/get
-async fn handle_prompts_get(
-    _state: &AppState,
-    request: &JsonRpcRequest,
-) -> JsonRpcResponse {
-    JsonRpcResponse::error(
-        request.id.clone(),
-        error_codes::METHOD_NOT_FOUND,
-        "Prompt get is not yet supported in MCPlex",
-    )
+/// Handle prompts/get — forward to the appropriate upstream server
+async fn handle_prompts_get(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let (name, arguments) = match request.params.as_ref() {
+        Some(params) => {
+            let name = params
+                .get("name")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string());
+            let arguments = params.get("arguments").cloned();
+            (name, arguments)
+        }
+        None => (None, None),
+    };
+
+    let name = match name {
+        Some(n) => n,
+        None => {
+            return JsonRpcResponse::error(
+                request.id.clone(),
+                error_codes::INVALID_PARAMS,
+                "Missing 'name' parameter in prompts/get request",
+            );
+        }
+    };
+
+    let multiplexer = state.multiplexer.read().await;
+
+    match multiplexer.get_prompt(&name, &arguments).await {
+        Ok(result) => JsonRpcResponse::success(request.id.clone(), result),
+        Err(e) => {
+            warn!("Prompt get failed for '{}': {}", name, e);
+            JsonRpcResponse::error(
+                request.id.clone(),
+                error_codes::INVALID_PARAMS,
+                &format!("Prompt '{}' not found or get failed: {}", name, e),
+            )
+        }
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -427,14 +521,14 @@ impl RateLimiter {
         let refill_rate = self.rps as f64;
 
         if let Ok(mut buckets) = self.buckets.write() {
-            let bucket = buckets.entry(client_id.to_string()).or_insert_with(|| {
-                TokenBucket {
+            let bucket = buckets
+                .entry(client_id.to_string())
+                .or_insert_with(|| TokenBucket {
                     tokens: max_tokens,
                     last_refill: Instant::now(),
                     max_tokens,
                     refill_rate,
-                }
-            });
+                });
 
             // Refill tokens based on elapsed time
             let now = Instant::now();
@@ -457,7 +551,10 @@ impl RateLimiter {
 
 /// Combined auth + rate limit middleware
 async fn auth_and_rate_limit_middleware(
-    axum::extract::State((api_key, rate_limiter)): axum::extract::State<(Option<String>, Arc<RateLimiter>)>,
+    axum::extract::State((api_key, rate_limiter)): axum::extract::State<(
+        Option<String>,
+        Arc<RateLimiter>,
+    )>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
@@ -470,12 +567,14 @@ async fn auth_and_rate_limit_middleware(
 
     // Check API key if configured
     if let Some(ref expected_key) = api_key {
-        let provided_key = request.headers()
+        let provided_key = request
+            .headers()
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
             .or_else(|| {
-                request.headers()
+                request
+                    .headers()
                     .get("x-api-key")
                     .and_then(|v| v.to_str().ok())
             });
@@ -483,7 +582,10 @@ async fn auth_and_rate_limit_middleware(
         match provided_key {
             Some(key) if key == expected_key => {} // OK
             _ => {
-                warn!("🚫 Unauthorized request to {} — invalid or missing API key", path);
+                warn!(
+                    "🚫 Unauthorized request to {} — invalid or missing API key",
+                    path
+                );
                 return (
                     StatusCode::UNAUTHORIZED,
                     Json(serde_json::json!({
@@ -495,7 +597,8 @@ async fn auth_and_rate_limit_middleware(
     }
 
     // Rate limiting
-    let client_id = request.headers()
+    let client_id = request
+        .headers()
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown")
@@ -508,7 +611,8 @@ async fn auth_and_rate_limit_middleware(
             Json(serde_json::json!({
                 "error": "Rate limit exceeded — try again later"
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     next.run(request).await

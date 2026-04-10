@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use tracing::debug;
 
-use crate::protocol::RegisteredTool;
 use super::ToolRouter;
+use crate::protocol::RegisteredTool;
 
 /// Semantic router using character n-gram embeddings
 /// This is a lightweight, zero-dependency approach that provides
@@ -54,7 +54,7 @@ impl SemanticRouter {
                         let hash = Self::hash_string(&ngram);
                         let idx = (hash % EMBEDDING_DIM as u64) as usize;
                         // Use hash sign to create both positive and negative values
-                        let sign = if (hash >> 32) % 2 == 0 { 1.0 } else { -1.0 };
+                        let sign = if (hash >> 32).is_multiple_of(2) { 1.0 } else { -1.0 };
                         vector[idx] += sign;
                     }
                 }
@@ -100,7 +100,7 @@ impl SemanticRouter {
         let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
         let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-        
+
         if mag_a == 0.0 || mag_b == 0.0 {
             0.0
         } else {
@@ -143,7 +143,8 @@ impl ToolRouter for SemanticRouter {
         let query_embedding = self.embed(query);
 
         // Score all tools
-        let mut scored: Vec<(usize, f32)> = tools.iter()
+        let mut scored: Vec<(usize, f32)> = tools
+            .iter()
             .enumerate()
             .map(|(i, tool)| {
                 let tool_embedding = self.get_tool_embedding(tool);
@@ -157,7 +158,8 @@ impl ToolRouter for SemanticRouter {
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Take top_k
-        let selected: Vec<RegisteredTool> = scored.iter()
+        let selected: Vec<RegisteredTool> = scored
+            .iter()
             .take(top_k)
             .map(|(i, score)| {
                 debug!("  🧠 {} (similarity: {:.3})", tools[*i].fqn, score);
@@ -176,7 +178,7 @@ impl ToolRouter for SemanticRouter {
 /// Build searchable text from a tool definition
 fn build_tool_text(tool: &RegisteredTool) -> String {
     let mut text = format!("{} {}", tool.definition.name, tool.server_name);
-    
+
     // Expand camelCase and snake_case names
     let expanded = expand_name(&tool.definition.name);
     text.push(' ');
@@ -196,7 +198,7 @@ fn build_tool_text(tool: &RegisteredTool) -> String {
                     text.push_str(key);
                     text.push(' ');
                     text.push_str(&expand_name(key));
-                    
+
                     if let Some(desc) = value.get("description") {
                         if let Some(s) = desc.as_str() {
                             text.push(' ');
@@ -257,11 +259,27 @@ mod tests {
     fn test_semantic_router_relevance() {
         let router = SemanticRouter::new(0.0, true);
         let tools = vec![
-            make_tool("create_issue", "Create a new issue in the bug tracker", "github"),
+            make_tool(
+                "create_issue",
+                "Create a new issue in the bug tracker",
+                "github",
+            ),
             make_tool("send_message", "Send a message to a Slack channel", "slack"),
-            make_tool("query_database", "Run SQL queries against the production database", "database"),
-            make_tool("list_pull_requests", "List pull requests in a repository", "github"),
-            make_tool("search_code", "Search for code patterns in repositories", "github"),
+            make_tool(
+                "query_database",
+                "Run SQL queries against the production database",
+                "database",
+            ),
+            make_tool(
+                "list_pull_requests",
+                "List pull requests in a repository",
+                "github",
+            ),
+            make_tool(
+                "search_code",
+                "Search for code patterns in repositories",
+                "github",
+            ),
         ];
 
         let results = router.route("I want to create a bug report", &tools, 2);
@@ -273,14 +291,14 @@ mod tests {
     #[test]
     fn test_embedding_similarity() {
         let router = SemanticRouter::new(0.0, false);
-        
+
         let embed_a = router.embed("create github issue");
         let embed_b = router.embed("create issue bug tracker");
         let embed_c = router.embed("send slack message");
-        
+
         let sim_ab = SemanticRouter::cosine_similarity(&embed_a, &embed_b);
         let sim_ac = SemanticRouter::cosine_similarity(&embed_a, &embed_c);
-        
+
         // "create issue" should be more similar to "create issue bug tracker"
         // than to "send slack message"
         assert!(sim_ab > sim_ac, "Expected {} > {}", sim_ab, sim_ac);
@@ -297,12 +315,12 @@ mod tests {
     fn test_caching() {
         let router = SemanticRouter::new(0.0, true);
         let tool = make_tool("test_tool", "A test tool", "test");
-        
+
         // First call computes
         let e1 = router.get_tool_embedding(&tool);
         // Second call should hit cache
         let e2 = router.get_tool_embedding(&tool);
-        
+
         assert_eq!(e1, e2);
     }
 }

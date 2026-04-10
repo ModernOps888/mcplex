@@ -4,6 +4,8 @@
 
 **Semantic tool routing • Security guardrails • Real-time observability**
 
+[![CI](https://github.com/ModernOps888/mcplex/actions/workflows/ci.yml/badge.svg)](https://github.com/ModernOps888/mcplex/actions/workflows/ci.yml)
+[![Release](https://github.com/ModernOps888/mcplex/actions/workflows/release.yml/badge.svg)](https://github.com/ModernOps888/mcplex/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-blue.svg)](https://modelcontextprotocol.io)
@@ -32,10 +34,10 @@ Every developer building multi-agent AI systems with MCP hits the same wall:
 MCPlex is a **single-binary Rust gateway** that sits between your AI agent and MCP servers:
 
 ```
-Your Agent ──→ MCPlex Gateway ──→ GitHub MCP
-                    │           ──→ Slack MCP
-                    │           ──→ Database MCP
-                    │           ──→ Filesystem MCP
+Your Agent ──→ MCPlex Gateway ──→ GitHub MCP     (stdio — persistent)
+                    │           ──→ Slack MCP      (stdio — persistent)
+                    │           ──→ Database MCP   (HTTP)
+                    │           ──→ Filesystem MCP  (stdio — persistent)
                     ▼
             🧠 Smart Routing (70-90% token savings)
             🔒 RBAC + Audit Logs + API Key Auth
@@ -45,9 +47,31 @@ Your Agent ──→ MCPlex Gateway ──→ GitHub MCP
             🔥 Hot-reload Config
 ```
 
+### Transport Support
+
+MCPlex supports **both** MCP transport types as a first-class citizen:
+
+| Transport | Discovery | Runtime Calls | Connection Model |
+|-----------|-----------|---------------|-----------------|
+| **Stdio** | ✅ Full MCP handshake | ✅ Multiplexed JSON-RPC | Persistent child process (long-lived) |
+| **Streamable HTTP** | ✅ Full MCP handshake | ✅ Standard HTTP POST | Stateless (connection pooling) |
+
+Stdio servers are spawned at startup and kept alive for the gateway's lifetime. The MCP handshake (`initialize` → `notifications/initialized`) runs once, then all subsequent `tools/call`, `resources/read`, and `prompts/get` requests are multiplexed over the same stdin/stdout pipe using JSON-RPC ID correlation.
+
 ## ⚡ Quick Start
 
-### 1. Build from Source
+### 1. Install (Pre-built Binary)
+
+Download the latest release from [GitHub Releases](https://github.com/ModernOps888/mcplex/releases):
+
+```bash
+# Linux / macOS
+curl -LO https://github.com/ModernOps888/mcplex/releases/latest/download/mcplex-linux-x86_64
+chmod +x mcplex-linux-x86_64
+sudo mv mcplex-linux-x86_64 /usr/local/bin/mcplex
+```
+
+### 2. Build from Source
 
 ```bash
 git clone https://github.com/modernops888/mcplex.git
@@ -55,20 +79,50 @@ cd mcplex
 cargo build --release
 ```
 
-### 2. Configure
+### 3. Configure
 
 ```bash
 cp mcplex.toml my-config.toml
 # Edit my-config.toml with your MCP servers
 ```
 
-### 3. Run
+**Minimal config for stdio servers:**
+
+```toml
+[gateway]
+listen = "127.0.0.1:3100"
+dashboard = "127.0.0.1:9090"
+
+[router]
+strategy = "semantic"
+
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+[[servers]]
+name = "memory"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+```
+
+### 4. Run
 
 ```bash
 ./target/release/mcplex --config my-config.toml
+
+# Expected output:
+# 🔌 Spawning stdio server 'filesystem': npx ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+# 🤝 MCP handshake complete for 'filesystem'
+# 📡 Server 'filesystem': 11 tools, 0 resources, 0 prompts
+# 🔌 Spawning stdio server 'memory': npx ["-y", "@modelcontextprotocol/server-memory"]
+# 🤝 MCP handshake complete for 'memory'
+# 📡 Server 'memory': 3 tools, 0 resources, 0 prompts
+# ⚡ MCPlex gateway listening on 127.0.0.1:3100
 ```
 
-### 4. Connect Your Agent
+### 5. Connect Your Agent
 
 Point your MCP client to `http://127.0.0.1:3100/mcp` and open the dashboard at `http://127.0.0.1:9090`.
 
@@ -141,7 +195,7 @@ MCPlex acts as a **man-in-the-middle proxy** for all MCP traffic:
 
 ```
 Your Agent ──POST /mcp──→ MCPlex Gateway ──→ Upstream MCP Server
-                              │
+                              │                (persistent stdio or HTTP)
                               ├─ ✅ Auth check (API key)
                               ├─ 🚦 Rate limit check
                               ├─ 🔒 RBAC + allowlist/blocklist
@@ -150,7 +204,6 @@ Your Agent ──POST /mcp──→ MCPlex Gateway ──→ Upstream MCP Server
 ```
 
 Every `tools/call` goes through the security engine and is logged. Every `tools/list` goes through the semantic router. There's no way to bypass it — if your agent uses MCPlex as its MCP endpoint, **all calls are intercepted, checked, and logged**.
-
 
 ## 🧠 Semantic Tool Routing
 
@@ -219,14 +272,10 @@ Built-in observability dashboard at `http://localhost:9090`:
 
 - **Global Metrics** — Total requests, tool calls, errors, tokens saved
 - **Per-Tool Stats** — Invocation count, avg/p50/p95/p99 latency
-- **Server Status** — Connected servers, transport type, tool count
+- **Server Status** — Connected servers, transport type, tool/resource/prompt counts
 - **Live Event Feed** — Real-time stream of all gateway activity
 
 The dashboard auto-refreshes every 3 seconds with zero configuration.
-
-![MCPlex Dashboard](docs/screenshots/dashboard.png)
-
-![Live Event Feed](docs/screenshots/event-feed.png)
 
 ## 📦 Response Caching
 
@@ -277,6 +326,16 @@ vim mcplex.toml
 # ✅ Configuration reloaded successfully
 ```
 
+## 📖 Full MCP Capability Support
+
+MCPlex aggregates and forwards **all three** MCP capability types from upstream servers:
+
+| Capability | List | Execute/Read | Routing |
+|-----------|------|-------------|---------|
+| **Tools** | `tools/list` → aggregated | `tools/call` → routed to owner | ✅ Semantic / Keyword |
+| **Resources** | `resources/list` → aggregated | `resources/read` → routed by URI | Direct routing |
+| **Prompts** | `prompts/list` → aggregated | `prompts/get` → routed by name | Direct routing |
+
 ## Configuration Reference
 
 ### `[gateway]`
@@ -313,7 +372,7 @@ vim mcplex.toml
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `name` | string | ✅ | Unique server name |
-| `command` | string | ⚡ | Command for stdio transport |
+| `command` | string | ⚡ | Executable path for stdio transport |
 | `args` | list | — | Command arguments |
 | `url` | string | ⚡ | URL for HTTP transport |
 | `env` | map | — | Environment variables (supports `${VAR}`) |
@@ -323,6 +382,8 @@ vim mcplex.toml
 | `enabled` | bool | `true` | Enable/disable this server |
 
 ⚡ = One of `command` or `url` is required
+
+> **Note:** For stdio servers, `command` should be the **executable path** (e.g. `npx`, `/usr/bin/python3`). Additional arguments go in the `args` array.
 
 ### `[roles.<name>]`
 
@@ -349,28 +410,30 @@ env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    MCPlex Gateway                    │
-│                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │  Semantic    │  │   Security   │  │ Observ-    │ │
-│  │  Router      │  │   Engine     │  │ ability    │ │
-│  │             │  │              │  │ Collector  │ │
-│  │ • Embeddings │  │ • RBAC       │  │ • Tokens   │ │
-│  │ • TopK Match │  │ • Allowlist  │  │ • Latency  │ │
-│  │ • Caching   │  │ • Audit Log  │  │ • Traces   │ │
-│  └──────┬──────┘  └──────┬───────┘  └─────┬──────┘ │
-│         └────────────┬───┘                │         │
-│                      ▼                    │         │
-│              ┌───────────────┐            │         │
-│              │  MCP Protocol │◄───────────┘         │
-│              │  Multiplexer  │                      │
-│              └───────┬───────┘                      │
-└──────────────────────┼──────────────────────────────┘
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-     MCP Server   MCP Server   MCP Server
+┌───────────────────────────────────────────────────────────┐
+│                      MCPlex Gateway                        │
+│                                                           │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐ │
+│  │  Semantic    │  │   Security   │  │   Observability  │ │
+│  │  Router      │  │   Engine     │  │   Collector      │ │
+│  │             │  │              │  │                  │ │
+│  │ • Embeddings │  │ • RBAC       │  │ • Token Savings  │ │
+│  │ • TopK Match │  │ • Allowlist  │  │ • Latency (p99)  │ │
+│  │ • Caching   │  │ • Audit Log  │  │ • Dashboard      │ │
+│  └──────┬──────┘  └──────┬───────┘  └────────┬─────────┘ │
+│         └────────────┬───┘                    │           │
+│                      ▼                        │           │
+│      ┌───────────────────────────────┐        │           │
+│      │     MCP Protocol Multiplexer  │◄───────┘           │
+│      │     + Response Cache          │                    │
+│      └──────────┬────────────────────┘                    │
+└─────────────────┼─────────────────────────────────────────┘
+                  │
+    ┌─────────────┼─────────────────────┐
+    ▼             ▼                     ▼
+MCP Server    MCP Server           MCP Server
+(stdio —      (stdio —             (HTTP —
+ persistent)   persistent)          stateless)
 ```
 
 ## CLI Reference
@@ -461,9 +524,10 @@ Contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Run `cargo fmt && cargo clippy -- -D warnings && cargo test`
+4. Commit your changes (`git commit -m 'Add amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ## License
 

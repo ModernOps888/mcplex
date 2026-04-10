@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    width: 1584px;
+    height: 396px;
+    overflow: hidden;
+    background: #060612;
+    font-family: 'Inter', sans-serif;
+    color: #e0e0e0;
+  }
+
+  .banner {
+    width: 1584px;
+    height: 396px;
+    position: relative;
+    background: linear-gradient(135deg, #060612 0%, #0a0a2e 30%, #0d0d24 60%, #060618 100%);
+    overflow: hidden;
+  }
+
+  /* Stardust particles */
+  .banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: 
+      radial-gradient(1px 1px at 100px 50px, rgba(0,255,255,0.4), transparent),
+      radial-gradient(1px 1px at 300px 120px, rgba(100,200,255,0.3), transparent),
+      radial-gradient(1px 1px at 500px 30px, rgba(200,100,255,0.3), transparent),
+      radial-gradient(1px 1px at 700px 180px, rgba(0,255,200,0.3), transparent),
+      radial-gradient(1px 1px at 900px 80px, rgba(0,255,255,0.4), transparent),
+      radial-gradient(1px 1px at 1100px 150px, rgba(150,100,255,0.3), transparent),
+      radial-gradient(1px 1px at 1300px 60px, rgba(0,255,255,0.3), transparent),
+      radial-gradient(1px 1px at 1500px 200px, rgba(200,150,255,0.3), transparent),
+      radial-gradient(1px 1px at 200px 300px, rgba(0,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 600px 350px, rgba(100,200,255,0.2), transparent),
+      radial-gradient(1px 1px at 1000px 300px, rgba(200,100,255,0.2), transparent),
+      radial-gradient(1px 1px at 1400px 330px, rgba(0,255,200,0.2), transparent),
+      radial-gradient(2px 2px at 150px 200px, rgba(0,255,255,0.15), transparent),
+      radial-gradient(2px 2px at 450px 250px, rgba(150,100,255,0.15), transparent),
+      radial-gradient(2px 2px at 800px 280px, rgba(0,200,255,0.15), transparent),
+      radial-gradient(2px 2px at 1200px 220px, rgba(100,255,200,0.15), transparent);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Subtle center glow */
+  .banner::after {
+    content: '';
+    position: absolute;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(0,100,255,0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Header bar */
+  .header {
+    position: relative;
+    z-index: 2;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #00e5ff;
+    text-shadow: 0 0 20px rgba(0,229,255,0.4);
+    border-bottom: 1px solid rgba(0,229,255,0.1);
+    background: linear-gradient(180deg, rgba(0,229,255,0.03) 0%, transparent 100%);
+  }
+
+  .header .infinity {
+    font-size: 18px;
+    margin-right: 4px;
+  }
+
+  .header .dot {
+    color: rgba(0,229,255,0.3);
+    margin: 0 2px;
+  }
+
+  /* Main content grid */
+  .grid {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 0;
+    height: 324px;
+    padding: 10px 14px;
+  }
+
+  .col {
+    padding: 6px 12px;
+    position: relative;
+  }
+
+  .col:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(0,229,255,0.15), transparent);
+  }
+
+  .col-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 8px;
+  }
+
+  /* Cards */
+  .card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    position: relative;
+  }
+
+  .card::before, .card::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-color: rgba(255,255,255,0.1);
+    border-style: solid;
+  }
+  .card::before {
+    top: -1px; left: -1px;
+    border-width: 1px 0 0 1px;
+    border-radius: 4px 0 0 0;
+  }
+  .card::after {
+    bottom: -1px; right: -1px;
+    border-width: 0 1px 1px 0;
+    border-radius: 0 0 4px 0;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .card-sub {
+    font-size: 9px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .card-icon {
+    font-size: 14px;
+  }
+
+  /* Badges */
+  .badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 5px;
+  }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .badge-cyan { background: rgba(0,229,255,0.12); color: #00e5ff; border: 1px solid rgba(0,229,255,0.2); }
+  .badge-purple { background: rgba(150,100,255,0.12); color: #b388ff; border: 1px solid rgba(150,100,255,0.2); }
+  .badge-green { background: rgba(0,230,118,0.12); color: #69f0ae; border: 1px solid rgba(0,230,118,0.2); }
+  .badge-gold { background: rgba(255,183,77,0.12); color: #ffb74d; border: 1px solid rgba(255,183,77,0.2); }
+  .badge-magenta { background: rgba(255,64,129,0.12); color: #ff4081; border: 1px solid rgba(255,64,129,0.2); }
+  .badge-orange { background: rgba(255,145,0,0.12); color: #ff9100; border: 1px solid rgba(255,145,0,0.2); }
+
+  .stat-big {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Tool mini-grid */
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+  }
+
+  .tool-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 5px;
+    padding: 5px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .tool-item .ti-stat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    color: rgba(0,230,118,0.7);
+    margin-left: auto;
+  }
+
+  /* Footer bar */
+  .footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    color: rgba(255,255,255,0.25);
+    letter-spacing: 1px;
+    z-index: 2;
+    border-top: 1px solid rgba(0,229,255,0.05);
+    background: linear-gradient(0deg, rgba(0,0,0,0.3) 0%, transparent 100%);
+  }
+
+  .footer .highlight {
+    color: rgba(0,229,255,0.5);
+  }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin: 4px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+  }
+
+  .flow-box {
+    background: rgba(0,230,118,0.08);
+    border: 1px solid rgba(0,230,118,0.2);
+    border-radius: 3px;
+    padding: 2px 5px;
+    color: #69f0ae;
+    font-size: 8px;
+    font-weight: 600;
+  }
+
+  .flow-arrow {
+    color: rgba(255,255,255,0.2);
+    font-size: 8px;
+  }
+
+  .glow-cyan { color: #00e5ff; text-shadow: 0 0 10px rgba(0,229,255,0.3); }
+  .glow-green { color: #69f0ae; text-shadow: 0 0 10px rgba(0,230,118,0.3); }
+  .glow-purple { color: #b388ff; text-shadow: 0 0 10px rgba(150,100,255,0.3); }
+  .glow-gold { color: #ffb74d; text-shadow: 0 0 10px rgba(255,183,77,0.3); }
+  .glow-magenta { color: #ff4081; text-shadow: 0 0 10px rgba(255,64,129,0.3); }
+</style>
+</head>
+<body>
+<div class="banner">
+
+  <!-- Header -->
+  <div class="header">
+    <span class="infinity">∞</span>
+    INFINITYTECHSTACK.UK
+    <span class="dot">•</span> AI
+    <span class="dot">•</span> COMPILERS
+    <span class="dot">•</span> FREE TOOLS
+    <span class="dot">•</span> ACADEMIES
+    <span class="dot">•</span> OPEN SOURCE
+  </div>
+
+  <!-- Grid -->
+  <div class="grid">
+
+    <!-- Column 1: AI & AGI -->
+    <div class="col">
+      <div class="col-title">AI & AGI Research</div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">🧠</span> <span class="glow-cyan">Neuromantix AGI</span></div>
+        <div class="card-sub">Self-Conscious Neuromorphic AGI</div>
+        <div class="badges">
+          <span class="badge badge-cyan">133 Modules</span>
+          <span class="badge badge-cyan">73K LOC</span>
+        </div>
+        <div class="badges">
+          <span class="badge badge-purple">Consciousness Loop</span>
+          <span class="badge badge-purple">Free Energy</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">⚡</span> <span class="glow-purple">Void LLM</span></div>
+        <div class="card-sub">From-Scratch LLM Training Engine</div>
+        <div class="badges">
+          <span class="badge badge-magenta">7,800 tok/s</span>
+          <span class="badge badge-magenta">CUDA</span>
+          <span class="badge badge-purple">3B Params</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 2: Compilers & Systems -->
+    <div class="col">
+      <div class="col-title">Compilers & Systems</div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">⚙️</span> <span class="glow-green">Vitalis Compiler</span></div>
+        <div class="card-sub">Self-Hosting • AI-Native</div>
+        <div class="flow">
+          <span class="flow-box">Source</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">IR</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">Cranelift</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">Binary</span>
+        </div>
+        <div class="badges">
+          <span class="badge badge-green">345 Modules</span>
+          <span class="badge badge-green">6,742 Tests</span>
+        </div>
+        <div style="margin-top:4px">
+          <span class="stat-big glow-green">139× Faster Than Python</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">🖥️</span> <span class="glow-gold">Freedom OS</span></div>
+        <div class="card-sub">Bare-metal x86_64 Kernel</div>
+        <div class="badges">
+          <span class="badge badge-gold">8.8K LOC</span>
+          <span class="badge badge-gold">UEFI Boot</span>
+          <span class="badge badge-gold">GUI Desktop</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 3: Free Tools -->
+    <div class="col">
+      <div class="col-title">Free Developer Tools</div>
+      <div style="margin-bottom:6px">
+        <span class="stat-big glow-green">1.8M+ Monthly Searches</span>
+        <span class="badge badge-green" style="margin-left:4px">No Sign-Up</span>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-item">🔍 Forge SEO <span class="ti-stat">85K</span></div>
+        <div class="tool-item">📄 ResumeForge <span class="ti-stat">900K</span></div>
+        <div class="tool-item">🎨 ColorForge <span class="ti-stat">480K</span></div>
+        <div class="tool-item">🏗️ SchemaForge <span class="ti-stat">110K</span></div>
+        <div class="tool-item">⚙️ JSONForge <span class="ti-stat">300K</span></div>
+        <div class="tool-item">🧰 Claude Toolkit <span class="ti-stat">16 files</span></div>
+      </div>
+      <div style="margin-top:6px; font-size:8px; color:rgba(255,255,255,0.3); font-family:'JetBrains Mono',monospace;">
+        // 7 TOOLS • ALL FREE • NO SIGN-UP
+      </div>
+    </div>
+
+    <!-- Column 4: Learn & Open Source -->
+    <div class="col">
+      <div class="col-title">Learn & Open Source</div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">🎓</span> <span class="glow-gold">Claude Academy</span></div>
+        <div class="card-sub">Master Claude AI & MCP</div>
+        <div class="badges">
+          <span class="badge badge-orange">6 Modules</span>
+          <span class="badge badge-orange">30 Quizzes</span>
+          <span class="badge badge-magenta">🔥 Popular</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">🔌</span> <span class="glow-cyan">MCP Academy</span></div>
+        <div class="card-sub">Master the Protocol</div>
+        <div class="badges">
+          <span class="badge badge-cyan">New: 2025</span>
+          <span class="badge badge-green">MCP</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="card-icon">🚀</span> <span class="glow-cyan">MCPlex Gateway</span></div>
+        <div class="card-sub">MCP Smart Gateway • Open Source</div>
+        <div class="badges">
+          <span class="badge badge-cyan">97% Token Savings</span>
+          <span class="badge badge-green">MIT</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span><span class="highlight">360K+</span> LOC</span>
+    <span>•</span>
+    <span>RUST</span>
+    <span>•</span>
+    <span>CUDA</span>
+    <span>•</span>
+    <span>TYPESCRIPT</span>
+    <span>•</span>
+    <span>BUILT FROM SCRATCH</span>
+    <span>•</span>
+    <span style="color: #69f0ae;">● AVAILABLE FOR WORK →</span>
+  </div>
+
+</div>
+</body>
+</html>
