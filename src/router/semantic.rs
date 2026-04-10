@@ -54,7 +54,11 @@ impl SemanticRouter {
                         let hash = Self::hash_string(&ngram);
                         let idx = (hash % EMBEDDING_DIM as u64) as usize;
                         // Use hash sign to create both positive and negative values
-                        let sign = if (hash >> 32).is_multiple_of(2) { 1.0 } else { -1.0 };
+                        let sign = if (hash >> 32).is_multiple_of(2) {
+                            1.0
+                        } else {
+                            -1.0
+                        };
                         vector[idx] += sign;
                     }
                 }

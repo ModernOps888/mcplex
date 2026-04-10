@@ -233,8 +233,6 @@ impl Default for SecurityConfig {
     }
 }
 
-
-
 /// Load configuration from a TOML file
 pub fn load_config(path: &str) -> anyhow::Result<AppConfig> {
     let content = std::fs::read_to_string(path)
