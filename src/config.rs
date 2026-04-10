@@ -34,6 +34,12 @@ pub struct GatewayConfig {
     /// Server name for identification
     #[serde(default = "default_server_name")]
     pub name: String,
+    /// API key for gateway authentication (optional — if set, clients must provide it)
+    /// Supports ${ENV_VAR} expansion, e.g. "${MCPLEX_API_KEY}"
+    pub api_key: Option<String>,
+    /// Maximum requests per second per client (0 = unlimited)
+    #[serde(default)]
+    pub rate_limit_rps: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

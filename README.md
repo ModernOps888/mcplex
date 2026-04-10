@@ -70,6 +70,86 @@ cp mcplex.toml my-config.toml
 
 Point your MCP client to `http://127.0.0.1:3100/mcp` and open the dashboard at `http://127.0.0.1:9090`.
 
+## 🔌 How to Connect Your Agent
+
+MCPlex is a **transparent MCP proxy** — any MCP client that supports Streamable HTTP can connect to it. Your agent talks to MCPlex as if it were a single MCP server, and MCPlex handles multiplexing, routing, and security behind the scenes.
+
+### Claude Desktop
+
+Add to your Claude Desktop config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mcplex": {
+      "url": "http://127.0.0.1:3100/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+### Cursor / Windsurf / Any MCP Client
+
+Any client that supports streamable HTTP MCP servers:
+
+```json
+{
+  "mcpServers": {
+    "mcplex-gateway": {
+      "url": "http://127.0.0.1:3100/mcp"
+    }
+  }
+}
+```
+
+### Custom Python Agent
+
+```python
+import requests
+
+GATEWAY = "http://127.0.0.1:3100/mcp"
+HEADERS = {"Authorization": "Bearer YOUR_API_KEY"}  # Optional
+
+# Initialize
+resp = requests.post(GATEWAY, json={
+    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+    "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+               "clientInfo": {"name": "my-agent", "version": "1.0"}}
+}, headers=HEADERS)
+
+# List all tools (MCPlex aggregates from all servers)
+resp = requests.post(GATEWAY, json={
+    "jsonrpc": "2.0", "id": 2, "method": "tools/list"
+}, headers=HEADERS)
+tools = resp.json()["result"]["tools"]
+
+# Call a tool (MCPlex routes to the right server automatically)
+resp = requests.post(GATEWAY, json={
+    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+    "params": {"name": "create_issue", "arguments": {"repo": "my-repo", "title": "Bug fix"}}
+}, headers=HEADERS)
+```
+
+### How It Catches Your Agent's Calls
+
+MCPlex acts as a **man-in-the-middle proxy** for all MCP traffic:
+
+```
+Your Agent ──POST /mcp──→ MCPlex Gateway ──→ Upstream MCP Server
+                              │
+                              ├─ ✅ Auth check (API key)
+                              ├─ 🚦 Rate limit check
+                              ├─ 🔒 RBAC + allowlist/blocklist
+                              ├─ 📝 Audit log (every call)
+                              └─ 📊 Metrics (latency, tokens)
+```
+
+Every `tools/call` goes through the security engine and is logged. Every `tools/list` goes through the semantic router. There's no way to bypass it — if your agent uses MCPlex as its MCP endpoint, **all calls are intercepted, checked, and logged**.
+
+
 ## 🧠 Semantic Tool Routing
 
 The killer feature. Instead of dumping all tool definitions into your LLM's context:
@@ -169,6 +249,8 @@ vim mcplex.toml
 | `dashboard` | string | — | Dashboard address (disabled if not set) |
 | `hot_reload` | bool | `true` | Auto-reload config on file change |
 | `name` | string | `mcplex` | Gateway instance name |
+| `api_key` | string | — | API key for client auth (supports `${ENV}`) |
+| `rate_limit_rps` | int | `0` | Max requests/sec per client (0 = unlimited) |
 
 ### `[router]`
 
@@ -186,6 +268,7 @@ vim mcplex.toml
 | `enable_rbac` | bool | `false` | Enable role-based access control |
 | `enable_audit_log` | bool | `false` | Enable structured audit logging |
 | `audit_log_path` | string | `./logs/audit.jsonl` | Audit log file path |
+| `max_log_size_mb` | int | `100` | Max log file size before rotation (keeps 5 backups) |
 
 ### `[[servers]]`
 
@@ -265,6 +348,73 @@ Options:
   --check                Validate config and exit
   -h, --help             Print help
   -V, --version          Print version
+```
+
+## 🛡️ Production Hardening
+
+### API Key Authentication
+
+Secure your gateway so only authorized agents can connect:
+
+```toml
+[gateway]
+api_key = "${MCPLEX_API_KEY}"  # Set via environment variable
+```
+
+Clients authenticate via header:
+```
+Authorization: Bearer your-secret-key
+# or
+X-API-Key: your-secret-key
+```
+
+Health checks (`/health`) are always unauthenticated for load balancer probes.
+
+### Rate Limiting
+
+Prevent runaway agents from overwhelming your servers:
+
+```toml
+[gateway]
+rate_limit_rps = 50  # Max 50 requests/sec per client (burst: 100)
+```
+
+Uses a per-client token bucket with 2x burst allowance. Returns `429 Too Many Requests` when exceeded.
+
+### Log Rotation
+
+Audit logs rotate automatically — they won't fill your disk:
+
+```toml
+[security]
+enable_audit_log = true
+audit_log_path = "./logs/audit.jsonl"
+max_log_size_mb = 100  # Rotates at 100MB, keeps 5 backups
+```
+
+Files rotate as: `audit.jsonl` → `audit.jsonl.1` → ... → `audit.jsonl.5` (oldest deleted).
+
+### Network Security
+
+Bind to localhost only (default) for local agents:
+```toml
+[gateway]
+listen = "127.0.0.1:3100"     # Localhost only
+dashboard = "127.0.0.1:9090"  # Dashboard also localhost
+```
+
+For network access, use a reverse proxy (nginx/caddy) with TLS.
+
+### Prometheus Monitoring
+
+MCPlex exposes a Prometheus-compatible `/api/metrics` endpoint on the dashboard port for external monitoring:
+
+```
+mcplex_requests_total 1234
+mcplex_tool_calls_total 567
+mcplex_errors_total 3
+mcplex_tokens_saved_total 45000
+mcplex_tool_duration_ms{tool="create_issue",quantile="0.95"} 142
 ```
 
 ## Contributing

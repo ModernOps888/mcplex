@@ -6,6 +6,8 @@ listen = "127.0.0.1:3100"      # MCP client connection address
 dashboard = "127.0.0.1:9090"   # Observability dashboard address
 hot_reload = true               # Auto-reload config on file change
 name = "my-gateway"             # Gateway instance name
+# api_key = "${MCPLEX_API_KEY}"  # Uncomment to require API key auth
+# rate_limit_rps = 50            # Uncomment to limit requests/sec (0 = unlimited)
 
 [router]
 strategy = "keyword"            # "semantic", "keyword", or "passthrough"

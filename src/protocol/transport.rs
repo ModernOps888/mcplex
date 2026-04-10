@@ -21,11 +21,31 @@ pub async fn start_gateway_server(
     addr: &str,
     state: Arc<AppState>,
 ) -> anyhow::Result<()> {
+    let config = state.config.read().await;
+    let has_api_key = config.gateway.api_key.is_some();
+    let api_key = config.gateway.api_key.clone();
+    let rate_limit = config.gateway.rate_limit_rps;
+    drop(config);
+
+    if has_api_key {
+        info!("🔑 API key authentication enabled");
+    }
+    if rate_limit > 0 {
+        info!("🚦 Rate limiting: {} req/s", rate_limit);
+    }
+
+    // Build rate limiter state
+    let rate_limiter = Arc::new(RateLimiter::new(rate_limit));
+
     let app = Router::new()
         .route("/", get(health_check))
         .route("/health", get(health_check))
         .route("/mcp", post(handle_mcp_request))
         .route("/sse", get(handle_sse))
+        .layer(axum::middleware::from_fn_with_state(
+            (api_key, rate_limiter),
+            auth_and_rate_limit_middleware,
+        ))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -334,4 +354,132 @@ async fn handle_prompts_get(
         error_codes::METHOD_NOT_FOUND,
         "Prompt get is not yet supported in MCPlex",
     )
+}
+
+// ─────────────────────────────────────────────
+// Authentication & Rate Limiting Middleware
+// ─────────────────────────────────────────────
+
+use std::collections::HashMap;
+use std::sync::RwLock;
+use std::time::Instant;
+
+/// Simple in-memory rate limiter using token bucket per client IP
+pub struct RateLimiter {
+    /// Max requests per second (0 = unlimited)
+    rps: u32,
+    /// Buckets per client IP
+    buckets: RwLock<HashMap<String, TokenBucket>>,
+}
+
+struct TokenBucket {
+    tokens: f64,
+    last_refill: Instant,
+    max_tokens: f64,
+    refill_rate: f64, // tokens per second
+}
+
+impl RateLimiter {
+    pub fn new(rps: u32) -> Self {
+        Self {
+            rps,
+            buckets: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Check if a request from this client should be allowed
+    pub fn check(&self, client_id: &str) -> bool {
+        if self.rps == 0 {
+            return true; // Unlimited
+        }
+
+        let max_tokens = self.rps as f64 * 2.0; // Allow burst of 2x
+        let refill_rate = self.rps as f64;
+
+        if let Ok(mut buckets) = self.buckets.write() {
+            let bucket = buckets.entry(client_id.to_string()).or_insert_with(|| {
+                TokenBucket {
+                    tokens: max_tokens,
+                    last_refill: Instant::now(),
+                    max_tokens,
+                    refill_rate,
+                }
+            });
+
+            // Refill tokens based on elapsed time
+            let now = Instant::now();
+            let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+            bucket.tokens = (bucket.tokens + elapsed * bucket.refill_rate).min(bucket.max_tokens);
+            bucket.last_refill = now;
+
+            // Try to consume a token
+            if bucket.tokens >= 1.0 {
+                bucket.tokens -= 1.0;
+                true
+            } else {
+                false
+            }
+        } else {
+            true // If lock fails, allow (don't fail closed on internal errors)
+        }
+    }
+}
+
+/// Combined auth + rate limit middleware
+async fn auth_and_rate_limit_middleware(
+    axum::extract::State((api_key, rate_limiter)): axum::extract::State<(Option<String>, Arc<RateLimiter>)>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = request.uri().path().to_string();
+
+    // Skip auth for health check
+    if path == "/" || path == "/health" {
+        return next.run(request).await;
+    }
+
+    // Check API key if configured
+    if let Some(ref expected_key) = api_key {
+        let provided_key = request.headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .or_else(|| {
+                request.headers()
+                    .get("x-api-key")
+                    .and_then(|v| v.to_str().ok())
+            });
+
+        match provided_key {
+            Some(key) if key == expected_key => {} // OK
+            _ => {
+                warn!("🚫 Unauthorized request to {} — invalid or missing API key", path);
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({
+                        "error": "Unauthorized — provide API key via Authorization: Bearer <key> or X-API-Key header"
+                    })),
+                ).into_response();
+            }
+        }
+    }
+
+    // Rate limiting
+    let client_id = request.headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    if !rate_limiter.check(&client_id) {
+        warn!("🚦 Rate limited request from {}", client_id);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Rate limit exceeded — try again later"
+            })),
+        ).into_response();
+    }
+
+    next.run(request).await
 }

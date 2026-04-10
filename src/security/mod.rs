@@ -21,9 +21,10 @@ impl SecurityEngine {
     pub fn new(config: &AppConfig) -> Self {
         Self {
             rbac: rbac::RbacEngine::new(&config.roles),
-            audit: audit::AuditLogger::new(
+            audit: audit::AuditLogger::with_max_size(
                 &config.security.audit_log_path,
                 config.security.enable_audit_log,
+                config.security.max_log_size_mb,
             ),
             allowlist: allowlist::AllowlistEngine::new(&config.servers),
             rbac_enabled: config.security.enable_rbac,

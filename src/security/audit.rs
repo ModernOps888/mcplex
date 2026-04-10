@@ -1,16 +1,22 @@
 // MCPlex — Audit Logger
-// Structured JSON audit logging for compliance and debugging
+// Structured JSON audit logging with automatic file rotation
 
 use tracing::{info, error};
 use std::io::Write;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::ToolCallParams;
 
-/// Structured audit logger
+/// Structured audit logger with automatic log rotation
 pub struct AuditLogger {
+    log_path: String,
     writer: Mutex<Option<std::io::BufWriter<std::fs::File>>>,
+    /// Current file size in bytes (approximate)
+    current_size: AtomicU64,
+    /// Maximum file size in bytes before rotation
+    max_size_bytes: u64,
 }
 
 /// Audit log entry
@@ -33,22 +39,35 @@ struct AuditEntry {
 
 impl AuditLogger {
     pub fn new(log_path: &str, enabled: bool) -> Self {
-        let writer = if enabled {
+        Self::with_max_size(log_path, enabled, 100) // Default 100 MB
+    }
+
+    pub fn with_max_size(log_path: &str, enabled: bool, max_size_mb: u64) -> Self {
+        let (writer, current_size) = if enabled {
             match Self::open_log_file(log_path) {
                 Ok(w) => {
-                    info!("📝 Audit log: {}", log_path);
-                    Mutex::new(Some(w))
+                    let size = std::fs::metadata(log_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    info!("📝 Audit log: {} (max {}MB, current {:.1}MB)", 
+                        log_path, max_size_mb, size as f64 / 1_048_576.0);
+                    (Mutex::new(Some(w)), AtomicU64::new(size))
                 }
                 Err(e) => {
                     error!("Failed to open audit log '{}': {} — audit logging disabled", log_path, e);
-                    Mutex::new(None)
+                    (Mutex::new(None), AtomicU64::new(0))
                 }
             }
         } else {
-            Mutex::new(None)
+            (Mutex::new(None), AtomicU64::new(0))
         };
 
-        Self { writer }
+        Self {
+            log_path: log_path.to_string(),
+            writer,
+            current_size,
+            max_size_bytes: max_size_mb * 1_048_576,
+        }
     }
 
     fn open_log_file(path: &str) -> anyhow::Result<std::io::BufWriter<std::fs::File>> {
@@ -60,6 +79,58 @@ impl AuditLogger {
             .append(true)
             .open(path)?;
         Ok(std::io::BufWriter::new(file))
+    }
+
+    /// Rotate the log file when it exceeds max size
+    fn rotate_if_needed(&self) {
+        let size = self.current_size.load(Ordering::Relaxed);
+        if size < self.max_size_bytes {
+            return;
+        }
+
+        // Rotate: rename current file to .1, .2, etc. (keep up to 5 rotations)
+        if let Ok(mut guard) = self.writer.lock() {
+            // Double-check inside lock
+            if self.current_size.load(Ordering::Relaxed) < self.max_size_bytes {
+                return;
+            }
+
+            info!("🔄 Rotating audit log ({:.1}MB >= {}MB limit)", 
+                size as f64 / 1_048_576.0, self.max_size_bytes / 1_048_576);
+
+            // Flush and close current writer
+            if let Some(ref mut w) = *guard {
+                let _ = w.flush();
+            }
+            *guard = None;
+
+            // Shift existing rotated files (.4 → .5, .3 → .4, etc.)
+            for i in (1..5).rev() {
+                let from = format!("{}.{}", self.log_path, i);
+                let to = format!("{}.{}", self.log_path, i + 1);
+                let _ = std::fs::rename(&from, &to);
+            }
+
+            // Rename current to .1
+            let rotated = format!("{}.1", self.log_path);
+            let _ = std::fs::rename(&self.log_path, &rotated);
+
+            // Delete oldest (keep 5 rotations max)
+            let oldest = format!("{}.5", self.log_path);
+            let _ = std::fs::remove_file(&oldest);
+
+            // Open fresh file
+            match Self::open_log_file(&self.log_path) {
+                Ok(w) => {
+                    *guard = Some(w);
+                    self.current_size.store(0, Ordering::Relaxed);
+                    info!("✅ Audit log rotated successfully");
+                }
+                Err(e) => {
+                    error!("Failed to open new audit log after rotation: {}", e);
+                }
+            }
+        }
     }
 
     pub fn log_tool_call(
@@ -99,11 +170,16 @@ impl AuditLogger {
     }
 
     fn write_entry(&self, entry: &AuditEntry) {
+        // Check rotation before writing
+        self.rotate_if_needed();
+
         if let Ok(json) = serde_json::to_string(entry) {
+            let line_size = json.len() as u64 + 1; // +1 for newline
             if let Ok(mut guard) = self.writer.lock() {
                 if let Some(ref mut writer) = *guard {
                     let _ = writeln!(writer, "{}", json);
                     let _ = writer.flush();
+                    self.current_size.fetch_add(line_size, Ordering::Relaxed);
                 }
             }
         }
