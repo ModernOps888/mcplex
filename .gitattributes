@@ -1,0 +1,14 @@
+# Normalize line endings for all Rust source files
+* text=auto eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
