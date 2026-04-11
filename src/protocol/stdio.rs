@@ -16,6 +16,7 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 use tracing::{debug, error, info, warn};
 
 use crate::config::ServerConfig;
+use crate::protocol::multiplexer::DeathSender;
 
 /// Outcome channel type: Ok(result_value) or Err(error_message)
 type PendingResult = Result<serde_json::Value, String>;
@@ -42,7 +43,12 @@ impl StdioConnection {
     ///
     /// The child process remains alive for the lifetime of this connection.
     /// On drop, the background tasks are detached and the child is reaped.
-    pub async fn connect(config: &ServerConfig) -> anyhow::Result<(Self, serde_json::Value)> {
+    ///
+    /// `death_tx` is used to notify the dead-server monitor when this child exits.
+    pub async fn connect(
+        config: &ServerConfig,
+        death_tx: DeathSender,
+    ) -> anyhow::Result<(Self, serde_json::Value)> {
         let command = config
             .command
             .as_ref()
@@ -98,8 +104,9 @@ impl StdioConnection {
             reader_loop(stdout, pending_for_reader, name_for_reader).await;
         });
 
-        // Start a task that reaps the child when it exits and
-        // drains all pending requests with errors
+        // Start a task that reaps the child when it exits,
+        // drains all pending requests with errors, and notifies
+        // the dead-server monitor via the death channel
         let name_for_child = server_name.clone();
         let pending_for_child = Arc::clone(&pending);
         let _child_handle = tokio::spawn(async move {
@@ -124,6 +131,9 @@ impl StdioConnection {
                     );
                 }
             }
+            // Notify the dead-server monitor so it can clean up
+            // multiplexer state and optionally attempt respawn
+            let _ = death_tx.send(name_for_child);
         });
 
         let conn = Self {

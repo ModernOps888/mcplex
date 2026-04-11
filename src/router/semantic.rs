@@ -242,16 +242,42 @@ impl ToolRouter for SemanticRouter {
             .map(|s| s.as_str())
             .collect();
 
+        // Compute average document length for BM25-style length normalization.
+        // This compensates for the cosine-similarity dilution effect where long
+        // descriptions spread their signal across more n-gram dimensions, giving
+        // short-description tools an unfair similarity advantage.
+        let tool_texts: Vec<String> = tools.iter().map(build_tool_text).collect();
+        let avg_doc_len: f32 = if tools.is_empty() {
+            1.0
+        } else {
+            tool_texts
+                .iter()
+                .map(|t| t.split_whitespace().count() as f32)
+                .sum::<f32>()
+                / tools.len() as f32
+        };
+
+        /// BM25 length normalization parameter (0.0 = no normalization, 1.0 = full).
+        /// 0.3 is a mild correction that fixes ranking inversions without
+        /// over-boosting verbose tool descriptions.
+        const BM25_B: f32 = 0.3;
+
         // Score all tools
         let mut scored: Vec<(usize, f32)> = tools
             .iter()
             .enumerate()
             .map(|(i, tool)| {
                 // Embed the tool text with IDF weighting
-                let tool_text = build_tool_text(tool);
-                let tool_embedding = self.embed_weighted(&tool_text, Some(&idf_weights));
+                let tool_embedding = self.embed_weighted(&tool_texts[i], Some(&idf_weights));
                 let mut similarity =
                     Self::cosine_similarity(&query_embedding, &tool_embedding);
+
+                // BM25-style length normalization: compensate for cosine dilution
+                // in long documents. A factor > 1.0 for long docs (boost),
+                // < 1.0 for short docs (reduce).
+                let doc_len = tool_texts[i].split_whitespace().count() as f32;
+                let length_norm = 1.0 + BM25_B * ((doc_len / avg_doc_len) - 1.0);
+                similarity *= length_norm.max(0.5); // clamp to prevent extreme values
 
                 // Apply server-name boost: if the query mentions a server name and
                 // this tool belongs to that server, amplify its score

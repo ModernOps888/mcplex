@@ -14,6 +14,10 @@ use crate::protocol::{
     ToolCallParams, ToolDefinition,
 };
 
+/// Channel type for stdio server death notifications
+pub type DeathReceiver = tokio::sync::mpsc::UnboundedReceiver<String>;
+pub type DeathSender = tokio::sync::mpsc::UnboundedSender<String>;
+
 /// Represents a connected upstream MCP server
 #[derive(Debug)]
 pub struct UpstreamServer {
@@ -42,6 +46,8 @@ pub struct Multiplexer {
     all_resources: Vec<RegisteredResource>,
     /// All registered prompts with their server origin
     all_prompts: Vec<RegisteredPrompt>,
+    /// Death notification sender — cloned to each stdio child watchdog
+    death_tx: DeathSender,
 }
 
 impl Multiplexer {
@@ -52,7 +58,11 @@ impl Multiplexer {
     /// - Stdio: spawns a persistent child, performs the MCP handshake, discovers capabilities
     ///
     /// `connected` is only set to `true` if discovery actually succeeds.
-    pub async fn new(config: &AppConfig) -> anyhow::Result<Self> {
+    ///
+    /// Returns `(Multiplexer, DeathReceiver)` — the receiver is used by the
+    /// dead-server monitor task spawned in main.rs after AppState is built.
+    pub async fn new(config: &AppConfig) -> anyhow::Result<(Self, DeathReceiver)> {
+        let (death_tx, death_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut servers = HashMap::new();
         let mut stdio_connections = HashMap::new();
         let mut tool_index = HashMap::new();
@@ -74,7 +84,7 @@ impl Multiplexer {
                 discover_http_server(server_config).await
             } else if server_config.command.is_some() {
                 // ── Stdio transport (persistent connection) ────
-                discover_stdio_server(server_config, &mut stdio_connections).await
+                discover_stdio_server(server_config, &mut stdio_connections, death_tx.clone()).await
             } else {
                 warn!(
                     "Server '{}' has neither 'url' nor 'command' configured",
@@ -146,7 +156,7 @@ impl Multiplexer {
             );
         }
 
-        Ok(Self {
+        Ok((Self {
             servers,
             stdio_connections,
             tool_index,
@@ -155,7 +165,8 @@ impl Multiplexer {
             all_tools,
             all_resources,
             all_prompts,
-        })
+            death_tx,
+        }, death_rx))
     }
 
     /// Get all registered tools across all servers
@@ -327,6 +338,176 @@ impl Multiplexer {
                 })
             })
             .collect()
+    }
+
+    /// Mark a server as disconnected and remove all its tools/resources/prompts
+    /// from the routing indexes. Called by the dead-server monitor when a stdio
+    /// child exits.
+    ///
+    /// Returns the number of tools that were removed (for event logging).
+    pub fn mark_server_disconnected(&mut self, server_name: &str) -> usize {
+        let server = match self.servers.get_mut(server_name) {
+            Some(s) => s,
+            None => return 0,
+        };
+
+        if !server.connected {
+            return 0; // Already disconnected
+        }
+
+        server.connected = false;
+        let tool_count = server.tools.len();
+        let resource_count = server.resources.len();
+        let prompt_count = server.prompts.len();
+
+        // Remove tool index entries
+        for tool in &server.tools {
+            self.tool_index.remove(&tool.name);
+            let fqn = format!("{}/{}", server_name, tool.name);
+            self.tool_index.remove(&fqn);
+        }
+
+        // Remove resource index entries
+        for resource in &server.resources {
+            self.resource_index.remove(&resource.uri);
+            let fqn = format!("{}/{}", server_name, resource.uri);
+            self.resource_index.remove(&fqn);
+        }
+
+        // Remove prompt index entries
+        for prompt in &server.prompts {
+            self.prompt_index.remove(&prompt.name);
+            let fqn = format!("{}/{}", server_name, prompt.name);
+            self.prompt_index.remove(&fqn);
+        }
+
+        // Remove from all_* vectors
+        self.all_tools.retain(|t| t.server_name != server_name);
+        self.all_resources.retain(|r| r.server_name != server_name);
+        self.all_prompts.retain(|p| p.server_name != server_name);
+
+        // Clear the server's own lists
+        server.tools.clear();
+        server.resources.clear();
+        server.prompts.clear();
+
+        // Remove the dead stdio connection
+        self.stdio_connections.remove(server_name);
+
+        warn!(
+            "⚠️  Server '{}' marked disconnected — {} tools, {} resources, {} prompts removed from routing",
+            server_name, tool_count, resource_count, prompt_count
+        );
+
+        tool_count
+    }
+
+    /// Reconnect a previously-dead stdio server.
+    ///
+    /// Re-discovers tools/resources/prompts from the new connection,
+    /// re-inserts them into all indexes, and marks the server as connected.
+    pub async fn reconnect_server(
+        &mut self,
+        server_name: &str,
+        conn: StdioConnection,
+        capabilities: serde_json::Value,
+    ) -> usize {
+        let has_tools = capabilities.get("tools").is_some();
+        let has_resources = capabilities.get("resources").is_some();
+        let has_prompts = capabilities.get("prompts").is_some();
+
+        // Discover tools
+        let tools: Vec<ToolDefinition> = if has_tools {
+            conn.send_request("tools/list", serde_json::json!({}))
+                .await
+                .ok()
+                .and_then(|r| r.get("tools").cloned())
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        // Discover resources
+        let resources: Vec<ResourceDefinition> = if has_resources {
+            conn.send_request("resources/list", serde_json::json!({}))
+                .await
+                .ok()
+                .and_then(|r| r.get("resources").cloned())
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        // Discover prompts
+        let prompts: Vec<PromptDefinition> = if has_prompts {
+            conn.send_request("prompts/list", serde_json::json!({}))
+                .await
+                .ok()
+                .and_then(|r| r.get("prompts").cloned())
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let tool_count = tools.len();
+
+        // Re-index tools
+        for tool in &tools {
+            let registered = RegisteredTool::new(tool.clone(), server_name);
+            self.tool_index.insert(tool.name.clone(), server_name.to_string());
+            self.tool_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.all_tools.push(registered);
+        }
+
+        // Re-index resources
+        for resource in &resources {
+            let registered = RegisteredResource::new(resource.clone(), server_name);
+            self.resource_index.insert(resource.uri.clone(), server_name.to_string());
+            self.resource_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.all_resources.push(registered);
+        }
+
+        // Re-index prompts
+        for prompt in &prompts {
+            let registered = RegisteredPrompt::new(prompt.clone(), server_name);
+            self.prompt_index.insert(prompt.name.clone(), server_name.to_string());
+            self.prompt_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.all_prompts.push(registered);
+        }
+
+        // Update server state
+        if let Some(server) = self.servers.get_mut(server_name) {
+            server.tools = tools;
+            server.resources = resources;
+            server.prompts = prompts;
+            server.connected = true;
+        }
+
+        // Store the new connection
+        self.stdio_connections.insert(server_name.to_string(), conn);
+
+        info!(
+            "✅ Server '{}' reconnected — {} tools, {} resources, {} prompts restored",
+            server_name,
+            tool_count,
+            self.servers.get(server_name).map(|s| s.resources.len()).unwrap_or(0),
+            self.servers.get(server_name).map(|s| s.prompts.len()).unwrap_or(0),
+        );
+
+        tool_count
+    }
+
+    /// Get a server's config (used by the respawn logic)
+    pub fn get_server_config(&self, server_name: &str) -> Option<&ServerConfig> {
+        self.servers.get(server_name).map(|s| &s.config)
+    }
+
+    /// Get the death notification sender (for respawn reconnections)
+    pub fn death_tx(&self) -> DeathSender {
+        self.death_tx.clone()
     }
 }
 
@@ -559,13 +740,14 @@ async fn paginated_list_http(
 async fn discover_stdio_server(
     config: &ServerConfig,
     stdio_connections: &mut HashMap<String, StdioConnection>,
+    death_tx: DeathSender,
 ) -> (
     Vec<ToolDefinition>,
     Vec<ResourceDefinition>,
     Vec<PromptDefinition>,
     bool,
 ) {
-    match StdioConnection::connect(config).await {
+    match StdioConnection::connect(config, death_tx).await {
         Ok((conn, capabilities)) => {
             let has_tools = capabilities.get("tools").is_some();
             let has_resources = capabilities.get("resources").is_some();

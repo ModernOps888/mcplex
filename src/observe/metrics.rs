@@ -28,6 +28,14 @@ pub enum EventType {
         total_tools: usize,
         selected_tools: usize,
     },
+    ServerDisconnect {
+        server_name: String,
+        tools_removed: usize,
+    },
+    ServerReconnect {
+        server_name: String,
+        tools_restored: usize,
+    },
 }
 
 /// A single metric event with timestamp
@@ -240,6 +248,41 @@ impl MetricsCollector {
                     })),
                 }
             }
+            EventType::ServerDisconnect {
+                server_name,
+                tools_removed,
+            } => {
+                if let Ok(mut counters) = self.counters.write() {
+                    counters.total_errors += 1;
+                }
+                MetricEvent {
+                    timestamp: now,
+                    event_type: "server_disconnect".to_string(),
+                    tool_name: None,
+                    server_name: Some(server_name.clone()),
+                    duration_ms: None,
+                    success: Some(false),
+                    tokens_saved: None,
+                    details: Some(serde_json::json!({
+                        "tools_removed": tools_removed,
+                    })),
+                }
+            }
+            EventType::ServerReconnect {
+                server_name,
+                tools_restored,
+            } => MetricEvent {
+                timestamp: now,
+                event_type: "server_reconnect".to_string(),
+                tool_name: None,
+                server_name: Some(server_name.clone()),
+                duration_ms: None,
+                success: Some(true),
+                tokens_saved: None,
+                details: Some(serde_json::json!({
+                    "tools_restored": tools_restored,
+                })),
+            },
         };
 
         if let Ok(mut events) = self.events.write() {

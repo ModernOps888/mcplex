@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -15,9 +16,9 @@ mod security;
 
 use config::AppConfig;
 use observe::dashboard::DashboardServer;
-use observe::metrics::MetricsCollector;
+use observe::metrics::{EventType, MetricsCollector};
 use protocol::cache::ToolCache;
-use protocol::multiplexer::Multiplexer;
+use protocol::multiplexer::{DeathReceiver, Multiplexer};
 use router::ToolRouter;
 use security::SecurityEngine;
 
@@ -116,8 +117,11 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Initialize the multiplexer
-    let multiplexer = Multiplexer::new(&app_config).await?;
-    info!("🔌 Connected to {} MCP server(s)", app_config.servers.len());
+    let (multiplexer, death_rx) = Multiplexer::new(&app_config).await?;
+    let connected_count = multiplexer.get_server_statuses().iter()
+        .filter(|s| s.get("connected").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+    info!("🔌 Connected to {}/{} MCP server(s)", connected_count, app_config.servers.len());
 
     // Initialize the router
     let router = router::create_router(&app_config);
@@ -168,6 +172,12 @@ async fn main() -> anyhow::Result<()> {
         });
         info!("🔥 Hot-reload enabled — config changes apply without restart");
     }
+
+    // Start the dead-server monitor (handles cleanup + respawn with backoff)
+    let state_for_monitor = Arc::clone(&state);
+    tokio::spawn(async move {
+        dead_server_monitor(state_for_monitor, death_rx).await;
+    });
 
     // Start the MCP gateway server
     let gateway_addr = app_config.gateway.listen.clone();
@@ -220,10 +230,105 @@ fn print_banner() {
     ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗  ║
     ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝  ║
     ║                                                  ║
-    ║     The MCP Smart Gateway — v0.2.1               ║
+    ║     The MCP Smart Gateway — v0.3.0               ║
     ║     Semantic Routing • Security • Observability  ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝
 "#;
     println!("{}", banner);
+}
+
+/// Dead-server monitor: receives death notifications from stdio child watchdogs,
+/// cleans up multiplexer state, records dashboard events, and attempts respawn
+/// with exponential backoff.
+async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) {
+    const MAX_RESPAWN_ATTEMPTS: u32 = 5;
+    const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
+    const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+    while let Some(server_name) = death_rx.recv().await {
+        // Phase 1: Clean up — mark disconnected and remove from routing
+        let tools_removed = {
+            let mut mux = state.multiplexer.write().await;
+            mux.mark_server_disconnected(&server_name)
+        };
+
+        state.metrics.record_event(EventType::ServerDisconnect {
+            server_name: server_name.clone(),
+            tools_removed,
+        });
+
+        // Phase 2: Respawn with exponential backoff
+        let config = {
+            let mux = state.multiplexer.read().await;
+            mux.get_server_config(&server_name).cloned()
+        };
+
+        let Some(config) = config else {
+            warn!("⚠️  No config found for '{}' — cannot respawn", server_name);
+            continue;
+        };
+
+        // Only respawn stdio servers
+        if config.command.is_none() {
+            continue;
+        }
+
+        let death_tx = {
+            let mux = state.multiplexer.read().await;
+            mux.death_tx()
+        };
+
+        let state_for_respawn = Arc::clone(&state);
+        let name_for_respawn = server_name.clone();
+
+        // Spawn respawn attempts in a separate task so we don't block
+        // the monitor from handling other server deaths concurrently
+        tokio::spawn(async move {
+            let mut delay = INITIAL_BACKOFF;
+
+            for attempt in 1..=MAX_RESPAWN_ATTEMPTS {
+                tokio::time::sleep(delay).await;
+                info!(
+                    "🔄 Respawn attempt {}/{} for '{}' (backoff: {:?})",
+                    attempt, MAX_RESPAWN_ATTEMPTS, name_for_respawn, delay
+                );
+
+                match protocol::stdio::StdioConnection::connect(&config, death_tx.clone()).await {
+                    Ok((conn, capabilities)) => {
+                        let tools_restored = {
+                            let mut mux = state_for_respawn.multiplexer.write().await;
+                            mux.reconnect_server(&name_for_respawn, conn, capabilities)
+                                .await
+                        };
+
+                        state_for_respawn
+                            .metrics
+                            .record_event(EventType::ServerReconnect {
+                                server_name: name_for_respawn.clone(),
+                                tools_restored,
+                            });
+
+                        info!(
+                            "✅ Server '{}' respawned successfully on attempt {}",
+                            name_for_respawn, attempt
+                        );
+                        return; // Success — exit respawn loop
+                    }
+                    Err(e) => {
+                        warn!(
+                            "🔄 Respawn attempt {}/{} for '{}' failed: {}",
+                            attempt, MAX_RESPAWN_ATTEMPTS, name_for_respawn, e
+                        );
+                        delay = (delay * 2).min(MAX_BACKOFF);
+                    }
+                }
+            }
+
+            error!(
+                "❌ Server '{}' failed to respawn after {} attempts — giving up",
+                name_for_respawn, MAX_RESPAWN_ATTEMPTS
+            );
+        });
+    }
 }
