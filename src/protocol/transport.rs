@@ -76,8 +76,10 @@ async fn handle_mcp_request(
 
     let response = match method.as_str() {
         "initialize" => handle_initialize(&state, &request).await,
-        "initialized" => {
-            // Notification — no response needed
+        // MCP lifecycle notifications — silently accept per spec (MCP 2025-03-26 §Lifecycle)
+        // These are fire-and-forget notifications; no response content is expected.
+        "initialized" | "notifications/initialized" => {
+            debug!("📋 Received lifecycle notification: {}", method);
             return (
                 StatusCode::OK,
                 Json(JsonRpcResponse::success(request_id, serde_json::json!({}))),
@@ -90,6 +92,17 @@ async fn handle_mcp_request(
         "prompts/list" => handle_prompts_list(&state, &request).await,
         "prompts/get" => handle_prompts_get(&state, &request).await,
         "ping" => JsonRpcResponse::success(request_id.clone(), serde_json::json!({})),
+        // Known but unimplemented 2025-06-18 spec methods — return proper
+        // JSON-RPC -32601 without noisy WARN logs. Clients like Claude Code
+        // send these speculatively and handle the error gracefully.
+        "resources/templates/list" => {
+            debug!("📋 Unimplemented spec method (2025-06-18): {}", method);
+            JsonRpcResponse::error(
+                request_id.clone(),
+                error_codes::METHOD_NOT_FOUND,
+                &format!("Method '{}' is not supported by this server", method),
+            )
+        }
         _ => {
             warn!("Unknown method: {}", method);
             JsonRpcResponse::error(
@@ -191,7 +204,7 @@ async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRp
             prompts: Some(serde_json::json!({})),
         },
         server_info: ServerInfo {
-            name: format!("mcplex-{}", config.gateway.name),
+            name: config.gateway.name.clone(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         },
         instructions,

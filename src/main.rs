@@ -220,7 +220,7 @@ fn print_banner() {
     ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗  ║
     ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝  ║
     ║                                                  ║
-    ║     The MCP Smart Gateway — v0.2.0               ║
+    ║     The MCP Smart Gateway — v0.2.1               ║
     ║     Semantic Routing • Security • Observability  ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝
