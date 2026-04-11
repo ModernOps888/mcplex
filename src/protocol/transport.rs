@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info, warn};
 
+use crate::config::RouterMode;
 use crate::observe::metrics::EventType;
 use crate::protocol::*;
 use crate::AppState;
@@ -167,6 +168,21 @@ async fn handle_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let config = state.config.read().await;
 
+    // Generate instructions for meta-tool mode to bootstrap the pattern
+    let instructions = if config.router.mode == RouterMode::MetaTool {
+        Some(
+            "This MCP server is a gateway (MCPlex) that provides access to tools from multiple backend servers. \
+             Instead of listing all tools directly, it exposes discovery tools: \
+             1. Call mcplex_find_tools with a natural language description of what you need. \
+             2. Review the returned tools and their schemas. \
+             3. Call mcplex_call_tool with the exact tool name and arguments. \
+             You can also call mcplex_list_categories to see all available tool groups."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
     let result = InitializeResult {
         protocol_version: "2025-03-26".to_string(),
         capabilities: ServerCapabilities {
@@ -178,6 +194,7 @@ async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRp
             name: format!("mcplex-{}", config.gateway.name),
             version: env!("CARGO_PKG_VERSION").to_string(),
         },
+        instructions,
     };
 
     JsonRpcResponse::success(
@@ -186,14 +203,155 @@ async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRp
     )
 }
 
+// ─────────────────────────────────────────────
+// Meta-Tool Definitions
+// ─────────────────────────────────────────────
+
+/// Build the 3 MCPlex meta-tool definitions (~200 tokens total)
+fn build_meta_tools() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
+            name: "mcplex_find_tools".to_string(),
+            description: Some(
+                "Search for available tools by describing what you want to do. \
+                 Returns the most relevant tools with their full schemas. \
+                 Always call this before using mcplex_call_tool."
+                    .to_string(),
+            ),
+            input_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language description of what you want to accomplish"
+                    }
+                },
+                "required": ["query"]
+            })),
+        },
+        ToolDefinition {
+            name: "mcplex_call_tool".to_string(),
+            description: Some(
+                "Execute a tool discovered via mcplex_find_tools. \
+                 Pass the exact tool name and arguments as specified in the tool's schema."
+                    .to_string(),
+            ),
+            input_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The exact name of the tool to call (from mcplex_find_tools results)"
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "Arguments to pass to the tool, matching its inputSchema"
+                    }
+                },
+                "required": ["name"]
+            })),
+        },
+        ToolDefinition {
+            name: "mcplex_list_categories".to_string(),
+            description: Some(
+                "List all available tool categories (server groups) with tool counts. \
+                 Use this to explore what's available before searching."
+                    .to_string(),
+            ),
+            input_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })),
+        },
+    ]
+}
+
 /// Handle tools/list — the core of MCPlex magic
-/// Instead of dumping ALL tools, we route intelligently
+/// Behavior depends on router.mode:
+/// - MetaTool: returns 3 gateway meta-tools (~200 tokens)
+/// - Passthrough: returns all real tools directly
+/// - Legacy: uses _mcplex_query param for filtering
 async fn handle_tools_list(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let config = state.config.read().await;
+    let mode = config.router.mode.clone();
+    drop(config);
+
+    match mode {
+        RouterMode::MetaTool => handle_tools_list_metatool(state, request).await,
+        RouterMode::Passthrough => handle_tools_list_passthrough(state, request).await,
+        RouterMode::Legacy => handle_tools_list_legacy(state, request).await,
+    }
+}
+
+/// MetaTool mode: return only the 3 meta-tools
+async fn handle_tools_list_metatool(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let multiplexer = state.multiplexer.read().await;
+    let all_tools = multiplexer.get_all_tools();
+
+    let meta_tools = build_meta_tools();
+
+    info!(
+        "🧠 Meta-tool mode: returning {} meta-tools (hiding {} real tools)",
+        meta_tools.len(),
+        all_tools.len()
+    );
+
+    state.metrics.record_event(EventType::ToolsList {
+        total: all_tools.len(),
+        visible: meta_tools.len(),
+    });
+
+    let result = ToolsListResult {
+        tools: meta_tools,
+        next_cursor: None,
+    };
+
+    JsonRpcResponse::success(
+        request.id.clone(),
+        serde_json::to_value(result).unwrap_or_default(),
+    )
+}
+
+/// Passthrough mode: return all real tools (no routing)
+async fn handle_tools_list_passthrough(
+    state: &AppState,
+    request: &JsonRpcRequest,
+) -> JsonRpcResponse {
+    let multiplexer = state.multiplexer.read().await;
+    let all_tools = multiplexer.get_all_tools();
+
+    // Apply security filtering
+    let security = state.security.read().await;
+    let visible_tools: Vec<&RegisteredTool> = all_tools
+        .iter()
+        .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
+        .collect();
+
+    let tool_defs: Vec<ToolDefinition> =
+        visible_tools.iter().map(|t| t.definition.clone()).collect();
+
+    state.metrics.record_event(EventType::ToolsList {
+        total: all_tools.len(),
+        visible: visible_tools.len(),
+    });
+
+    let result = ToolsListResult {
+        tools: tool_defs,
+        next_cursor: None,
+    };
+
+    JsonRpcResponse::success(
+        request.id.clone(),
+        serde_json::to_value(result).unwrap_or_default(),
+    )
+}
+
+/// Legacy mode: use _mcplex_query param for filtering (deprecated)
+async fn handle_tools_list_legacy(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
     let router = state.router.read().await;
     let config = state.config.read().await;
 
-    // Get all tools from all connected servers
     let all_tools = multiplexer.get_all_tools();
 
     // Check if there's a cursor/query hint for filtering
@@ -232,7 +390,6 @@ async fn handle_tools_list(state: &AppState, request: &JsonRpcRequest) -> JsonRp
         .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
         .collect();
 
-    // Build the response
     let tool_defs: Vec<ToolDefinition> =
         visible_tools.iter().map(|t| t.definition.clone()).collect();
 
@@ -253,6 +410,7 @@ async fn handle_tools_list(state: &AppState, request: &JsonRpcRequest) -> JsonRp
 }
 
 /// Handle tools/call — execute a tool on the appropriate upstream server
+/// Also intercepts meta-tool calls (mcplex_find_tools, mcplex_call_tool, mcplex_list_categories)
 async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
     let start = std::time::Instant::now();
 
@@ -272,6 +430,197 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
         }
     };
 
+    let tool_name = params.name.clone();
+
+    // ── Meta-tool interception ─────────────────────────
+    // These are handled by the gateway itself, not forwarded upstream
+    match tool_name.as_str() {
+        "mcplex_find_tools" => {
+            return handle_meta_find_tools(state, request, &params).await;
+        }
+        "mcplex_call_tool" => {
+            return handle_meta_call_tool(state, request, &params).await;
+        }
+        "mcplex_list_categories" => {
+            return handle_meta_list_categories(state, request).await;
+        }
+        _ => {} // Fall through to normal tool dispatch
+    }
+
+    // ── Normal tool dispatch ───────────────────────────
+    dispatch_real_tool(state, request, &params, start).await
+}
+
+/// Meta-tool: mcplex_find_tools — search for tools by intent
+async fn handle_meta_find_tools(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    params: &ToolCallParams,
+) -> JsonRpcResponse {
+    let query = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("query"))
+        .and_then(|q| q.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if query.is_empty() {
+        return JsonRpcResponse::error(
+            request.id.clone(),
+            error_codes::INVALID_PARAMS,
+            "Missing required parameter 'query' for mcplex_find_tools",
+        );
+    }
+
+    let multiplexer = state.multiplexer.read().await;
+    let router = state.router.read().await;
+    let config = state.config.read().await;
+    let security = state.security.read().await;
+
+    let all_tools = multiplexer.get_all_tools();
+
+    // Apply routing
+    let routed = router.route(&query, &all_tools, config.router.top_k);
+
+    info!(
+        "🧠 mcplex_find_tools: '{}' → {} tools (from {} total)",
+        query,
+        routed.len(),
+        all_tools.len()
+    );
+
+    state.metrics.record_event(EventType::Routing {
+        query: query.clone(),
+        total_tools: all_tools.len(),
+        selected_tools: routed.len(),
+    });
+
+    // Apply security filtering and build response with full schemas
+    let tool_results: Vec<serde_json::Value> = routed
+        .iter()
+        .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
+        .map(|tool| {
+            serde_json::json!({
+                "name": tool.definition.name,
+                "description": tool.definition.description,
+                "inputSchema": tool.definition.input_schema,
+                "server": tool.server_name,
+            })
+        })
+        .collect();
+
+    let result = serde_json::json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string_pretty(&serde_json::json!({
+                "query": query,
+                "matched_tools": tool_results.len(),
+                "total_tools": all_tools.len(),
+                "tools": tool_results,
+            })).unwrap_or_default()
+        }]
+    });
+
+    JsonRpcResponse::success(request.id.clone(), result)
+}
+
+/// Meta-tool: mcplex_call_tool — proxy a call to a real upstream tool
+/// Routes through the full security/audit/cache pipeline
+async fn handle_meta_call_tool(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    params: &ToolCallParams,
+) -> JsonRpcResponse {
+    let start = std::time::Instant::now();
+
+    let real_tool_name = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if real_tool_name.is_empty() {
+        return JsonRpcResponse::error(
+            request.id.clone(),
+            error_codes::INVALID_PARAMS,
+            "Missing required parameter 'name' for mcplex_call_tool",
+        );
+    }
+
+    let real_arguments = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("arguments"))
+        .cloned();
+
+    // Build a real ToolCallParams for the upstream call
+    let real_params = ToolCallParams {
+        name: real_tool_name.clone(),
+        arguments: real_arguments,
+    };
+
+    info!(
+        "🔧 mcplex_call_tool: dispatching '{}'",
+        real_tool_name
+    );
+
+    // Dispatch through the normal tool call pipeline (security, cache, audit)
+    dispatch_real_tool(state, request, &real_params, start).await
+}
+
+/// Meta-tool: mcplex_list_categories — list server groups with tool counts
+async fn handle_meta_list_categories(
+    state: &AppState,
+    request: &JsonRpcRequest,
+) -> JsonRpcResponse {
+    let multiplexer = state.multiplexer.read().await;
+    let all_tools = multiplexer.get_all_tools();
+
+    // Group tools by server name
+    let mut categories: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for tool in &all_tools {
+        categories
+            .entry(tool.server_name.clone())
+            .or_default()
+            .push(tool.definition.name.clone());
+    }
+
+    let category_list: Vec<serde_json::Value> = categories
+        .iter()
+        .map(|(server, tools)| {
+            serde_json::json!({
+                "category": server,
+                "tool_count": tools.len(),
+                "tools": tools,
+            })
+        })
+        .collect();
+
+    let result = serde_json::json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string_pretty(&serde_json::json!({
+                "total_categories": category_list.len(),
+                "total_tools": all_tools.len(),
+                "categories": category_list,
+            })).unwrap_or_default()
+        }]
+    });
+
+    JsonRpcResponse::success(request.id.clone(), result)
+}
+
+/// Dispatch a real tool call through the full security/audit/cache pipeline
+async fn dispatch_real_tool(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    params: &ToolCallParams,
+    start: std::time::Instant,
+) -> JsonRpcResponse {
     let tool_name = params.name.clone();
 
     // Resolve role from request headers (via _mcplex_role param or default)
@@ -324,7 +673,7 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
             debug!("🔧 Dispatching tool '{}' to server '{}'", tool_name, server);
 
             // Execute the tool call on the upstream server
-            let result = multiplexer.call_tool(&server, &params).await;
+            let result = multiplexer.call_tool(&server, params).await;
             let elapsed = start.elapsed();
 
             // Record metrics
@@ -336,7 +685,7 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
             });
 
             // Audit log
-            security.audit_tool_call(&tool_name, &server, &params, elapsed.as_millis() as u64);
+            security.audit_tool_call(&tool_name, &server, params, elapsed.as_millis() as u64);
 
             match result {
                 Ok(result_value) => {

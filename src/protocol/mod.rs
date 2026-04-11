@@ -97,6 +97,9 @@ pub struct InitializeResult {
     pub capabilities: ServerCapabilities,
     #[serde(rename = "serverInfo")]
     pub server_info: ServerInfo,
+    /// Optional instructions for the LLM on how to use this server (MCP spec compliant)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

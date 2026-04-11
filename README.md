@@ -207,15 +207,51 @@ Every `tools/call` goes through the security engine and is logged. Every `tools/
 
 ## 🧠 Semantic Tool Routing
 
-The killer feature. Instead of dumping all tool definitions into your LLM's context:
+The killer feature. Instead of dumping all tool definitions into your LLM's context, MCPlex uses a **meta-tool pattern** that works with **every standard MCP client** — no custom extensions needed:
 
 | Scenario | Without MCPlex | With MCPlex | Savings |
 |----------|---------------|-------------|---------|
-| 5 servers, 50 tools | ~10,000 tokens | ~1,000 tokens | **90%** |
-| 10 servers, 100 tools | ~20,000 tokens | ~1,000 tokens | **95%** |
-| 20 servers, 200 tools | ~40,000 tokens | ~1,000 tokens | **97.5%** |
+| 5 servers, 50 tools | ~10,000 tokens | ~200 tokens | **98%** |
+| 10 servers, 100 tools | ~20,000 tokens | ~200 tokens | **99%** |
+| 20 servers, 200 tools | ~40,000 tokens | ~200 tokens | **99.5%** |
 
-MCPlex supports three routing strategies:
+### How It Works
+
+When your agent calls `tools/list`, MCPlex returns **3 lightweight meta-tools** (~200 tokens) instead of all real tools:
+
+```
+Agent                        MCPlex Gateway
+  │                               │
+  ├──tools/list──────────────────►│  Returns: mcplex_find_tools, mcplex_call_tool,
+  │                               │           mcplex_list_categories (~200 tokens)
+  │                               │
+  ├──mcplex_find_tools────────────►│  "store a memory"
+  │◄──────────────────────────────┤  → [{name: "create_memory", desc: "...", inputSchema: {...}},
+  │                               │     {name: "save_note", desc: "...", inputSchema: {...}}]
+  │                               │
+  ├──mcplex_call_tool─────────────►│  {name: "create_memory", arguments: {...}}
+  │◄──────────────────────────────┤  → tool result (routed through security + cache + audit)
+```
+
+- **`mcplex_find_tools(query)`** — Search for tools by natural language intent. Returns matching tools with full schemas.
+- **`mcplex_call_tool(name, arguments)`** — Execute a discovered tool. Routes through the full security/audit/cache pipeline.
+- **`mcplex_list_categories()`** — Browse available tool categories (server groups) with tool counts.
+
+This works with Claude Code, Claude Desktop, Cursor, Windsurf, and any other MCP client — no custom extensions or client-side plugins required.
+
+### Routing Mode
+
+MCPlex supports three routing modes via `router.mode`:
+
+| Mode | Behavior | Client Compatibility |
+|------|----------|---------------------|
+| **`metatool`** (default) | Returns 3 gateway meta-tools; agent discovers real tools via `mcplex_find_tools` | ✅ All standard MCP clients |
+| **`passthrough`** | Returns all real tools directly (no routing indirection) | ✅ All standard MCP clients |
+| **`legacy`** | Uses `_mcplex_query` param extension for filtering | ❌ Custom clients only |
+
+### Routing Strategy
+
+Within `metatool` and `legacy` modes, MCPlex uses a routing strategy to rank tools:
 
 - **`semantic`** — Character n-gram embeddings with cosine similarity (recommended)
 - **`keyword`** — TF-IDF keyword matching (zero ML dependency)
@@ -223,7 +259,8 @@ MCPlex supports three routing strategies:
 
 ```toml
 [router]
-strategy = "semantic"
+mode = "metatool"            # "metatool", "passthrough", or "legacy"
+strategy = "semantic"        # "semantic", "keyword", or "passthrough"
 top_k = 5                    # Return top 5 most relevant tools
 similarity_threshold = 0.3   # Minimum relevance score
 cache_embeddings = true       # Cache for faster repeated queries
@@ -353,6 +390,7 @@ MCPlex aggregates and forwards **all three** MCP capability types from upstream 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `mode` | string | `metatool` | `metatool`, `passthrough`, or `legacy` |
 | `strategy` | string | `keyword` | `semantic`, `keyword`, or `passthrough` |
 | `top_k` | int | `5` | Maximum tools returned per query |
 | `similarity_threshold` | float | `0.3` | Minimum relevance score (0.0-1.0) |

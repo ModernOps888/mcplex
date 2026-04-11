@@ -52,6 +52,12 @@ pub struct RouterConfig {
     /// Routing strategy: "semantic", "keyword", or "passthrough"
     #[serde(default = "default_strategy")]
     pub strategy: RouterStrategy,
+    /// Routing mode: "metatool", "passthrough", or "legacy"
+    /// - metatool: Expose 3 gateway meta-tools (works with ALL standard MCP clients)
+    /// - passthrough: Return all real tools directly (no routing indirection)
+    /// - legacy: Use _mcplex_query param extension (requires custom client)
+    #[serde(default = "default_mode")]
+    pub mode: RouterMode,
     /// Number of top tools to return per query
     #[serde(default = "default_top_k")]
     pub top_k: usize,
@@ -158,6 +164,18 @@ pub enum RouterStrategy {
     Passthrough,
 }
 
+/// Router mode controls how tools/list behaves
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum RouterMode {
+    /// Expose 3 gateway meta-tools — works with ALL standard MCP clients
+    MetaTool,
+    /// Return all real tools directly — no routing indirection
+    Passthrough,
+    /// Use _mcplex_query param extension — requires custom client (deprecated)
+    Legacy,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TransportType {
@@ -180,6 +198,9 @@ fn default_true() -> bool {
 }
 fn default_strategy() -> RouterStrategy {
     RouterStrategy::Keyword
+}
+fn default_mode() -> RouterMode {
+    RouterMode::MetaTool
 }
 fn default_top_k() -> usize {
     5
@@ -215,6 +236,7 @@ impl Default for RouterConfig {
     fn default() -> Self {
         Self {
             strategy: default_strategy(),
+            mode: default_mode(),
             top_k: default_top_k(),
             cache_embeddings: true,
             similarity_threshold: default_threshold(),

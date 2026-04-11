@@ -122,8 +122,8 @@ async fn main() -> anyhow::Result<()> {
     // Initialize the router
     let router = router::create_router(&app_config);
     info!(
-        "🧠 Router initialized: {:?} (top_k={})",
-        app_config.router.strategy, app_config.router.top_k
+        "🧠 Router initialized: {:?} (mode={:?}, top_k={})",
+        app_config.router.strategy, app_config.router.mode, app_config.router.top_k
     );
 
     // Initialize cache

@@ -11,6 +11,10 @@ name = "my-gateway"             # Gateway instance name
 
 [router]
 strategy = "keyword"            # "semantic", "keyword", or "passthrough"
+mode = "metatool"               # "metatool" (default), "passthrough", or "legacy"
+                                # metatool: 3 gateway tools — works with ALL standard MCP clients
+                                # passthrough: returns all real tools directly (no routing)
+                                # legacy: _mcplex_query param extension (requires custom client)
 top_k = 5                       # Max tools to return per query
 cache_embeddings = true         # Cache tool embeddings for faster routing
 similarity_threshold = 0.1     # Minimum similarity score (0.0-1.0)
