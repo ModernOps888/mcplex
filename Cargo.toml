@@ -1,6 +1,6 @@
 [package]
 name = "mcplex"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "MCPlex - The MCP Smart Gateway. Semantic tool routing, security guardrails, and real-time observability for AI agents."
 license = "MIT"
