@@ -206,7 +206,8 @@ rl.on('line', async (line) => {
         await handleInitialize(id);
         break;
       case 'initialized':
-        handleNotification('notifications/initialized', {});
+        // Forward to MCPlex (client→server notification, do NOT echo back)
+        callMCPlex('notifications/initialized', '2.0', undefined, {}).catch(() => {});
         break;
       case 'tools/list':
         await handleToolsList(id);
