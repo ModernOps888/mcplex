@@ -208,6 +208,7 @@ rl.on('line', async (line) => {
         await handleInitialize(id);
         break;
       case 'initialized':
+      case 'notifications/initialized':
         // Client→server notification — no response expected, don't forward
         // MCPlex returns id:null which breaks Claude Desktop's Zod validation
         break;
@@ -224,6 +225,10 @@ rl.on('line', async (line) => {
         await handleResourceRead(id, params);
         break;
       default:
+        // Notifications (no id) — don't forward, MCPlex returns id:null
+        if (id === undefined || id === null) {
+          break;
+        }
         // Forward unknown methods to MCPlex
         try {
           const response = await callMCPlex(method, jsonrpc, id, params);
