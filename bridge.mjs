@@ -32,7 +32,9 @@ function sendMessage(msg) {
     }
     idTypeMap.delete(String(msg.id));
   }
-  console.log(JSON.stringify(msg));
+  const line = JSON.stringify(msg);
+  console.error(`[Bridge SEND] ${line.substring(0, 200)}`);
+  process.stdout.write(line + '\n');
 }
 
 // HTTP POST to MCPlex
@@ -206,8 +208,8 @@ rl.on('line', async (line) => {
         await handleInitialize(id);
         break;
       case 'initialized':
-        // Forward to MCPlex (client→server notification, do NOT echo back)
-        callMCPlex('notifications/initialized', '2.0', undefined, {}).catch(() => {});
+        // Client→server notification — no response expected, don't forward
+        // MCPlex returns id:null which breaks Claude Desktop's Zod validation
         break;
       case 'tools/list':
         await handleToolsList(id);
