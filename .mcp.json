@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mcplex": {
+      "command": "node",
+      "args": ["/Users/hkr/Repositories/mcplex/bridge.mjs"],
+      "env": {
+        "MCPLEX_GATEWAY": "http://127.0.0.1:3100/mcp"
+      }
+    }
+  }
+}
