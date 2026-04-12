@@ -32,9 +32,7 @@ function sendMessage(msg) {
     }
     idTypeMap.delete(String(msg.id));
   }
-  const line = JSON.stringify(msg);
-  console.error(`[Bridge SEND] ${line.substring(0, 200)}`);
-  process.stdout.write(line + '\n');
+  process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
 // HTTP POST to MCPlex
