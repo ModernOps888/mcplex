@@ -20,8 +20,18 @@ const rl = readline.createInterface({
   terminal: false,
 });
 
-// Send JSON line to Claude
+// Track original ID types so we can restore them in responses
+const idTypeMap = new Map();
+
+// Send JSON line to Claude, restoring original ID type
 function sendMessage(msg) {
+  if (msg.id !== undefined && idTypeMap.has(String(msg.id))) {
+    const originalType = idTypeMap.get(String(msg.id));
+    if (originalType === 'number') {
+      msg.id = Number(msg.id);
+    }
+    idTypeMap.delete(String(msg.id));
+  }
   console.log(JSON.stringify(msg));
 }
 
@@ -182,7 +192,10 @@ rl.on('line', async (line) => {
     const msg = JSON.parse(line);
     let { jsonrpc, id, method, params } = msg;
 
-    // Ensure id is a string for MCPlex compatibility
+    // Track original ID type, then convert to string for MCPlex
+    if (id !== undefined) {
+      idTypeMap.set(String(id), typeof id);
+    }
     if (typeof id === 'number') {
       id = String(id);
     }
