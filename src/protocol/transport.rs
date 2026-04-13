@@ -144,9 +144,16 @@ async fn handle_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // 3. Could send notifications (tools/list_changed, etc.)
 
     let config = state.config.read().await;
-    let listen = &config.gateway.listen;
-    let endpoint_url = format!("http://{}/mcp", listen);
+    let listen = config.gateway.listen.clone();
     drop(config);
+
+    // If bound to 0.0.0.0, emit 127.0.0.1 so clients get a routable URL
+    let client_addr = if listen.starts_with("0.0.0.0") {
+        listen.replacen("0.0.0.0", "127.0.0.1", 1)
+    } else {
+        listen
+    };
+    let endpoint_url = format!("http://{}/mcp", client_addr);
 
     let initial_event = Event::default().event("endpoint").data(endpoint_url);
 
