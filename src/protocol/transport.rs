@@ -143,7 +143,12 @@ async fn handle_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // 2. Sends periodic keepalive pings
     // 3. Could send notifications (tools/list_changed, etc.)
 
-    let initial_event = Event::default().event("endpoint").data("/mcp");
+    let config = state.config.read().await;
+    let listen = &config.gateway.listen;
+    let endpoint_url = format!("http://{}/mcp", listen);
+    drop(config);
+
+    let initial_event = Event::default().event("endpoint").data(endpoint_url);
 
     let stream = async_stream::stream! {
         // Send the endpoint URL first
