@@ -130,26 +130,31 @@ Point your MCP client to `http://127.0.0.1:3100/mcp` and open the dashboard at `
 
 MCPlex is a **transparent MCP proxy** — any MCP client that supports Streamable HTTP can connect to it. Your agent talks to MCPlex as if it were a single MCP server, and MCPlex handles multiplexing, routing, and security behind the scenes.
 
-### Claude Desktop
+### Claude Code / Claude Desktop (Recommended — stdio bridge)
 
-Add to your Claude Desktop config (`claude_desktop_config.json`):
+Claude Code and Claude Desktop use **stdio transport**. MCPlex ships a cross-platform bridge (`bridge.mjs`) that translates stdio ↔ HTTP. Works on **macOS, Windows, and Linux**.
+
+Add a `.mcp.json` to your project root (Claude Code auto-discovers it):
 
 ```json
 {
   "mcpServers": {
     "mcplex": {
-      "url": "http://127.0.0.1:3100/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+      "command": "node",
+      "args": ["/path/to/mcplex/bridge.mjs"],
+      "env": {
+        "MCPLEX_GATEWAY": "http://127.0.0.1:3100/mcp"
       }
     }
   }
 }
 ```
 
-### Cursor / Windsurf / Any MCP Client
+For Claude Desktop, add the same config to `claude_desktop_config.json`.
 
-Any client that supports streamable HTTP MCP servers:
+### Cursor / Windsurf / HTTP-capable MCP Clients
+
+Clients that support streamable HTTP can connect directly:
 
 ```json
 {
@@ -307,12 +312,18 @@ Every tool invocation is logged as JSON Lines:
 
 Built-in observability dashboard at `http://localhost:9090`:
 
+<div align="center">
+
+![MCPlex Dashboard](docs/images/dashboard.png)
+
+</div>
+
 - **Global Metrics** — Total requests, tool calls, errors, tokens saved
 - **Per-Tool Stats** — Invocation count, avg/p50/p95/p99 latency
-- **Server Status** — Connected servers, transport type, tool/resource/prompt counts
-- **Live Event Feed** — Real-time stream of all gateway activity
+- **Server Fleet** — Connected servers, transport type, tool/resource/prompt counts
+- **Live Event Stream** — Real-time feed of all gateway activity with latency tags
 
-The dashboard auto-refreshes every 3 seconds with zero configuration.
+Glassmorphism design with animated gradients. Auto-refreshes every 3 seconds. Zero configuration.
 
 ## 📦 Response Caching
 

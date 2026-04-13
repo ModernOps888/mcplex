@@ -111,182 +111,396 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCPlex Dashboard — MCP Smart Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0e17;
-            --bg-secondary: #111827;
-            --bg-card: #1a2332;
-            --bg-card-hover: #1e2a3d;
-            --border: #2d3748;
-            --text-primary: #e2e8f0;
+            --bg-primary: #05080f;
+            --bg-secondary: #0c1220;
+            --bg-card: rgba(15, 23, 42, 0.6);
+            --bg-card-hover: rgba(22, 33, 55, 0.8);
+            --bg-glass: rgba(15, 23, 42, 0.45);
+            --border: rgba(56, 72, 104, 0.35);
+            --border-glow: rgba(6, 182, 212, 0.25);
+            --text-primary: #f1f5f9;
             --text-secondary: #94a3b8;
-            --text-muted: #64748b;
+            --text-muted: #5a6a82;
             --accent: #06b6d4;
-            --accent-glow: rgba(6, 182, 212, 0.3);
+            --accent-2: #8b5cf6;
+            --accent-glow: rgba(6, 182, 212, 0.15);
+            --accent-glow-strong: rgba(6, 182, 212, 0.4);
             --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
             --warning: #f59e0b;
             --error: #ef4444;
-            --gradient-1: linear-gradient(135deg, #06b6d4, #8b5cf6);
-            --gradient-2: linear-gradient(135deg, #10b981, #06b6d4);
+            --error-glow: rgba(239, 68, 68, 0.15);
+            --gradient-brand: linear-gradient(135deg, #06b6d4, #8b5cf6, #ec4899);
+            --gradient-success: linear-gradient(135deg, #10b981, #06b6d4);
+            --gradient-card: linear-gradient(135deg, rgba(6, 182, 212, 0.05), rgba(139, 92, 246, 0.05));
+            --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+            --shadow-glow: 0 0 30px rgba(6, 182, 212, 0.12);
+            --radius: 16px;
+            --radius-sm: 10px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
+            overflow-x: hidden;
         }
+        /* ─── Animated background ─── */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 10%, rgba(6, 182, 212, 0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 40% at 50% 50%, rgba(236, 72, 153, 0.03) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+            animation: bgShift 20s ease-in-out infinite;
+        }
+        @keyframes bgShift {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        /* ─── Header ─── */
         .header {
+            position: relative;
+            z-index: 1;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
-            padding: 1rem 2rem;
+            padding: 0.875rem 2rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
         }
-        .header h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            background: var(--gradient-1);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 1px;
+            background: var(--gradient-brand);
+            opacity: 0.4;
+        }
+        .header-left {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 1rem;
         }
-        .header .status {
+        .logo {
+            width: 36px; height: 36px;
+            background: var(--gradient-brand);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            box-shadow: 0 2px 12px rgba(6, 182, 212, 0.25);
+        }
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .header h1 span {
+            background: var(--gradient-brand);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header .version {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            background: rgba(56, 72, 104, 0.25);
+            padding: 0.15rem 0.45rem;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        .status-pill {
             display: flex;
             align-items: center;
             gap: 0.5rem;
             color: var(--success);
-            font-size: 0.875rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            background: var(--success-glow);
+            padding: 0.35rem 0.85rem;
+            border-radius: 20px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
         }
-        .header .status::before {
-            content: '';
-            width: 8px;
-            height: 8px;
+        .status-dot {
+            width: 7px; height: 7px;
             background: var(--success);
             border-radius: 50%;
-            animation: pulse 2s infinite;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+            animation: dotPulse 2s ease-in-out infinite;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        @keyframes dotPulse {
+            0%, 100% { box-shadow: 0 0 6px rgba(16,185,129,0.6); transform: scale(1); }
+            50% { box-shadow: 0 0 14px rgba(16,185,129,0.9); transform: scale(1.2); }
         }
+        .refresh-hint {
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* ─── Container ─── */
         .container {
-            max-width: 1400px;
+            position: relative;
+            z-index: 1;
+            max-width: 1440px;
             margin: 0 auto;
             padding: 1.5rem;
         }
+        /* ─── Metric Cards ─── */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(5, 1fr);
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
+        @media (max-width: 1200px) {
+            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 700px) {
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+        }
         .metric-card {
-            background: var(--bg-card);
+            position: relative;
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.25rem;
-            transition: all 0.3s ease;
+            border-radius: var(--radius);
+            padding: 1.3rem 1.4rem;
+            transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            overflow: hidden;
+            box-shadow: var(--shadow-card);
+        }
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: var(--gradient-brand);
+            opacity: 0;
+            transition: opacity 0.35s;
         }
         .metric-card:hover {
             background: var(--bg-card-hover);
-            border-color: var(--accent);
-            box-shadow: 0 0 20px var(--accent-glow);
+            border-color: var(--border-glow);
+            box-shadow: var(--shadow-card), var(--shadow-glow);
+            transform: translateY(-2px);
+        }
+        .metric-card:hover::before { opacity: 1; }
+        .metric-card .icon {
+            font-size: 1.3rem;
+            margin-bottom: 0.75rem;
+            display: inline-block;
         }
         .metric-card .label {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
+            font-weight: 600;
             margin-bottom: 0.5rem;
         }
         .metric-card .value {
             font-size: 2rem;
-            font-weight: 700;
+            font-weight: 800;
             color: var(--text-primary);
             line-height: 1;
+            letter-spacing: -0.03em;
+            font-variant-numeric: tabular-nums;
         }
         .metric-card .subtext {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            margin-top: 0.25rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.4rem;
+            font-weight: 500;
         }
         .metric-card.accent .value { color: var(--accent); }
-        .metric-card.success .value { color: var(--success); }
+        .metric-card.success .value {
+            background: var(--gradient-success);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
         .metric-card.warning .value { color: var(--warning); }
+        .metric-card.error .value { color: var(--error); }
+        .metric-card.highlight {
+            background: var(--gradient-card);
+            border-color: rgba(6, 182, 212, 0.15);
+        }
+        .metric-card.highlight .value {
+            font-size: 2.25rem;
+            background: var(--gradient-success);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        /* ─── Sections ─── */
         .section {
-            background: var(--bg-card);
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: var(--radius);
             margin-bottom: 1.5rem;
             overflow: hidden;
+            box-shadow: var(--shadow-card);
+            transition: border-color 0.3s;
+        }
+        .section:hover {
+            border-color: rgba(56, 72, 104, 0.5);
         }
         .section-header {
             padding: 1rem 1.5rem;
             border-bottom: 1px solid var(--border);
             font-weight: 600;
+            font-size: 0.9rem;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.6rem;
+            letter-spacing: -0.01em;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        .section-header .count {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--accent-glow);
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            margin-left: auto;
         }
+        /* ─── Tables ─── */
+        table { width: 100%; border-collapse: collapse; }
         th, td {
-            padding: 0.75rem 1rem;
+            padding: 0.7rem 1.25rem;
             text-align: left;
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid rgba(56, 72, 104, 0.2);
         }
         th {
             color: var(--text-muted);
-            font-size: 0.75rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.06em;
             font-weight: 600;
+            background: rgba(0, 0, 0, 0.15);
         }
-        td { font-size: 0.875rem; }
-        tr:hover { background: var(--bg-card-hover); }
+        td {
+            font-size: 0.85rem;
+            font-variant-numeric: tabular-nums;
+        }
+        tr { transition: background 0.15s; }
+        tr:hover { background: rgba(6, 182, 212, 0.04); }
+        tbody tr:last-child td { border-bottom: none; }
+        td strong {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+        }
+        /* ─── Badges ─── */
         .badge {
-            display: inline-block;
-            padding: 0.125rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
         }
-        .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-        .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); }
-        .badge-info { background: rgba(6, 182, 212, 0.15); color: var(--accent); }
+        .badge-success {
+            background: var(--success-glow);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.15);
+        }
+        .badge-error {
+            background: var(--error-glow);
+            color: var(--error);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+        }
+        .badge-info {
+            background: var(--accent-glow);
+            color: var(--accent);
+            border: 1px solid rgba(6, 182, 212, 0.15);
+        }
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.12);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, 0.15);
+        }
+        .badge-dot {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        /* ─── Event Feed ─── */
         .event-feed {
-            max-height: 400px;
+            max-height: 420px;
             overflow-y: auto;
-            padding: 0.5rem;
+            padding: 0.375rem;
         }
         .event-item {
-            display: flex;
+            display: grid;
+            grid-template-columns: 72px 110px 1fr;
             align-items: center;
-            gap: 1rem;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 0.25rem;
+            gap: 0.5rem;
+            padding: 0.55rem 1rem;
+            border-radius: var(--radius-sm);
+            margin-bottom: 2px;
             font-size: 0.8rem;
-            transition: background 0.2s;
+            transition: background 0.15s;
         }
-        .event-item:hover { background: var(--bg-card-hover); }
+        .event-item:hover { background: rgba(6, 182, 212, 0.04); }
         .event-time {
             color: var(--text-muted);
-            font-family: monospace;
-            font-size: 0.75rem;
-            min-width: 80px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
         }
         .event-type {
             font-weight: 600;
-            min-width: 100px;
+            font-size: 0.78rem;
         }
-        .event-detail { color: var(--text-secondary); flex: 1; }
+        .event-detail {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .event-detail .latency {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            background: rgba(56, 72, 104, 0.2);
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+        }
+        .event-detail .save-tag {
+            color: var(--success);
+            font-weight: 500;
+        }
+        /* ─── Grid ─── */
         .grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -295,43 +509,82 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         @media (max-width: 900px) {
             .grid-2 { grid-template-columns: 1fr; }
         }
-        .tokens-saved {
-            font-size: 2.5rem !important;
-            background: var(--gradient-2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: var(--bg-primary); }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        /* ─── Scrollbar ─── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        /* ─── Animations ─── */
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .metric-card, .section {
+            animation: fadeSlideIn 0.4s ease-out backwards;
+        }
+        .metrics-grid .metric-card:nth-child(1) { animation-delay: 0.05s; }
+        .metrics-grid .metric-card:nth-child(2) { animation-delay: 0.1s; }
+        .metrics-grid .metric-card:nth-child(3) { animation-delay: 0.15s; }
+        .metrics-grid .metric-card:nth-child(4) { animation-delay: 0.2s; }
+        .metrics-grid .metric-card:nth-child(5) { animation-delay: 0.25s; }
+        .grid-2 .section:nth-child(1) { animation-delay: 0.3s; }
+        .grid-2 .section:nth-child(2) { animation-delay: 0.35s; }
+        .container > .section:last-child { animation-delay: 0.4s; }
+        /* ─── Empty state ─── */
+        .empty-state {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 2.5rem 1rem;
+            font-size: 0.85rem;
+        }
+        .empty-state .empty-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🚀 MCPlex Dashboard</h1>
-        <div class="status">Online — <span id="uptime">0s</span></div>
+        <div class="header-left">
+            <div class="logo">⚡</div>
+            <h1><span>MCPlex</span></h1>
+            <span class="version">v0.3.0</span>
+        </div>
+        <div class="header-right">
+            <span class="refresh-hint" id="last-update">—</span>
+            <div class="status-pill">
+                <div class="status-dot"></div>
+                Online · <span id="uptime">0s</span>
+            </div>
+        </div>
     </div>
     <div class="container">
         <div class="metrics-grid" id="metrics-grid"></div>
         <div class="grid-2">
             <div class="section">
-                <div class="section-header">🔧 Tool Statistics</div>
+                <div class="section-header">
+                    🔧 Tool Performance
+                    <span class="count" id="tool-count">0</span>
+                </div>
                 <table>
                     <thead>
                         <tr>
-                            <th>Tool</th>
+                            <th>Tool Name</th>
                             <th>Calls</th>
                             <th>Avg</th>
                             <th>P95</th>
-                            <th>Errors</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="tool-stats"></tbody>
                 </table>
             </div>
             <div class="section">
-                <div class="section-header">📡 Connected Servers</div>
+                <div class="section-header">
+                    📡 Server Fleet
+                    <span class="count" id="server-count">0</span>
+                </div>
                 <table>
                     <thead>
                         <tr>
@@ -346,11 +599,16 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             </div>
         </div>
         <div class="section">
-            <div class="section-header">📋 Live Event Feed</div>
+            <div class="section-header">
+                📋 Live Event Stream
+                <span class="count" id="event-count">0</span>
+            </div>
             <div class="event-feed" id="event-feed"></div>
         </div>
     </div>
     <script>
+        let prevCounters = {};
+
         async function fetchData() {
             try {
                 const [metrics, servers] = await Promise.all([
@@ -361,96 +619,142 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
                 updateToolStats(metrics.tools || []);
                 updateServers(servers.servers || []);
                 updateEvents(metrics.recent_events || []);
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
             } catch (e) {
                 console.error('Failed to fetch data:', e);
             }
         }
+
+        function trendArrow(key, current) {
+            const prev = prevCounters[key] || 0;
+            if (current > prev && prev > 0) return ' ↑';
+            return '';
+        }
+
         function updateMetrics(data) {
             const c = data.counters || {};
             document.getElementById('uptime').textContent = c.uptime || '0s';
+
             const grid = document.getElementById('metrics-grid');
             grid.innerHTML = `
                 <div class="metric-card">
+                    <div class="icon">📥</div>
                     <div class="label">Total Requests</div>
-                    <div class="value">${(c.total_requests || 0).toLocaleString()}</div>
+                    <div class="value">${(c.total_requests || 0).toLocaleString()}${trendArrow('req', c.total_requests)}</div>
+                    <div class="subtext">since startup</div>
                 </div>
                 <div class="metric-card accent">
+                    <div class="icon">🔧</div>
                     <div class="label">Tool Calls</div>
-                    <div class="value">${(c.total_tool_calls || 0).toLocaleString()}</div>
+                    <div class="value">${(c.total_tool_calls || 0).toLocaleString()}${trendArrow('tc', c.total_tool_calls)}</div>
+                    <div class="subtext">dispatched to upstreams</div>
                 </div>
-                <div class="metric-card success">
+                <div class="metric-card highlight">
+                    <div class="icon">🎯</div>
                     <div class="label">Tokens Saved</div>
-                    <div class="value tokens-saved">${formatNumber(c.total_tokens_saved || 0)}</div>
+                    <div class="value">${formatNumber(c.total_tokens_saved || 0)}</div>
                     <div class="subtext">via intelligent routing</div>
                 </div>
                 <div class="metric-card">
+                    <div class="icon">🧠</div>
                     <div class="label">Routing Queries</div>
                     <div class="value">${(c.total_routing_queries || 0).toLocaleString()}</div>
+                    <div class="subtext">semantic matches</div>
                 </div>
-                <div class="metric-card ${c.total_errors > 0 ? 'warning' : ''}">
+                <div class="metric-card ${(c.total_errors || 0) > 0 ? 'error' : ''}">
+                    <div class="icon">${(c.total_errors || 0) > 0 ? '⚠️' : '✅'}</div>
                     <div class="label">Errors</div>
                     <div class="value">${(c.total_errors || 0).toLocaleString()}</div>
+                    <div class="subtext">${(c.total_errors || 0) === 0 ? 'all clear' : 'check event log'}</div>
                 </div>
             `;
+            prevCounters = { req: c.total_requests, tc: c.total_tool_calls };
         }
+
         function updateToolStats(tools) {
             const tbody = document.getElementById('tool-stats');
+            document.getElementById('tool-count').textContent = tools.length;
             if (!tools.length) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No tool calls yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🔧</div>No tool calls yet</div></td></tr>';
                 return;
             }
-            tbody.innerHTML = tools.map(t => `
-                <tr>
-                    <td><strong>${t.name}</strong></td>
-                    <td>${t.invocations}</td>
-                    <td>${t.avg_ms}ms</td>
-                    <td>${t.p95_ms}ms</td>
-                    <td>${t.errors > 0 ? `<span class="badge badge-error">${t.errors}</span>` : '<span class="badge badge-success">0</span>'}</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = tools.map(t => {
+                const errRate = t.invocations > 0 ? (t.errors / t.invocations * 100) : 0;
+                const statusBadge = t.errors > 0
+                    ? `<span class="badge badge-error"><span class="badge-dot"></span>${t.errors} err</span>`
+                    : `<span class="badge badge-success"><span class="badge-dot"></span>OK</span>`;
+                return `
+                    <tr>
+                        <td><strong>${t.name}</strong></td>
+                        <td class="mono">${t.invocations}</td>
+                        <td class="mono">${t.avg_ms}ms</td>
+                        <td class="mono">${t.p95_ms}ms</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            }).join('');
         }
+
         function updateServers(servers) {
             const tbody = document.getElementById('server-list');
+            const connected = servers.filter(s => s.connected).length;
+            document.getElementById('server-count').textContent = `${connected}/${servers.length}`;
             if (!servers.length) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No servers configured</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📡</div>No servers configured</div></td></tr>';
                 return;
             }
             tbody.innerHTML = servers.map(s => `
                 <tr>
                     <td><strong>${s.name}</strong></td>
                     <td><span class="badge badge-info">${s.transport}</span></td>
-                    <td>${s.tools}</td>
-                    <td>${s.connected ? '<span class="badge badge-success">Connected</span>' : '<span class="badge badge-error">Disconnected</span>'}</td>
+                    <td class="mono">${s.tools}</td>
+                    <td>${s.connected
+                        ? '<span class="badge badge-success"><span class="badge-dot"></span>Connected</span>'
+                        : '<span class="badge badge-error"><span class="badge-dot"></span>Down</span>'}</td>
                 </tr>
             `).join('');
         }
+
         function updateEvents(events) {
             const feed = document.getElementById('event-feed');
+            document.getElementById('event-count').textContent = events.length;
             if (!events.length) {
-                feed.innerHTML = '<div class="event-item"><div class="event-detail" style="text-align:center;color:var(--text-muted)">Waiting for events...</div></div>';
+                feed.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>Waiting for events…</div>';
                 return;
             }
+            const typeConfig = {
+                tool_call:     { color: 'var(--accent)',         icon: '🔧' },
+                routing:       { color: 'var(--success)',        icon: '🧠' },
+                request:       { color: 'var(--text-secondary)', icon: '📥' },
+                tool_blocked:  { color: 'var(--error)',          icon: '🚫' },
+                server_disconnect: { color: 'var(--warning)',    icon: '⚠️' },
+                server_reconnect:  { color: 'var(--success)',    icon: '🔄' },
+            };
             feed.innerHTML = events.slice(0, 50).map(e => {
                 const time = new Date(e.timestamp).toLocaleTimeString();
-                const type_colors = { tool_call: 'var(--accent)', routing: 'var(--success)', request: 'var(--text-secondary)', tool_blocked: 'var(--error)' };
+                const cfg = typeConfig[e.event_type] || { color: 'var(--text-primary)', icon: '•' };
+                const latency = e.duration_ms ? `<span class="latency">${e.duration_ms}ms</span>` : '';
+                const saved = e.tokens_saved ? `<span class="save-tag">🎯 ${e.tokens_saved} saved</span>` : '';
                 return `
                     <div class="event-item">
                         <div class="event-time">${time}</div>
-                        <div class="event-type" style="color:${type_colors[e.event_type] || 'var(--text-primary)'}">${e.event_type}</div>
-                        <div class="event-detail">${e.tool_name || ''} ${e.duration_ms ? `(${e.duration_ms}ms)` : ''} ${e.tokens_saved ? `🎯 ${e.tokens_saved} tokens saved` : ''}</div>
+                        <div class="event-type" style="color:${cfg.color}">${cfg.icon} ${e.event_type}</div>
+                        <div class="event-detail">${e.tool_name || e.query || ''} ${latency} ${saved}</div>
                     </div>
                 `;
             }).join('');
         }
+
         function formatNumber(n) {
             if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
             if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
             return n.toString();
         }
-        // Initial fetch and auto-refresh
+
         fetchData();
         setInterval(fetchData, 3000);
     </script>
 </body>
 </html>
 "##;
+
