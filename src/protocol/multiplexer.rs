@@ -156,17 +156,20 @@ impl Multiplexer {
             );
         }
 
-        Ok((Self {
-            servers,
-            stdio_connections,
-            tool_index,
-            resource_index,
-            prompt_index,
-            all_tools,
-            all_resources,
-            all_prompts,
-            death_tx,
-        }, death_rx))
+        Ok((
+            Self {
+                servers,
+                stdio_connections,
+                tool_index,
+                resource_index,
+                prompt_index,
+                all_tools,
+                all_resources,
+                all_prompts,
+                death_tx,
+            },
+            death_rx,
+        ))
     }
 
     /// Get all registered tools across all servers
@@ -457,24 +460,30 @@ impl Multiplexer {
         // Re-index tools
         for tool in &tools {
             let registered = RegisteredTool::new(tool.clone(), server_name);
-            self.tool_index.insert(tool.name.clone(), server_name.to_string());
-            self.tool_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.tool_index
+                .insert(tool.name.clone(), server_name.to_string());
+            self.tool_index
+                .insert(registered.fqn.clone(), server_name.to_string());
             self.all_tools.push(registered);
         }
 
         // Re-index resources
         for resource in &resources {
             let registered = RegisteredResource::new(resource.clone(), server_name);
-            self.resource_index.insert(resource.uri.clone(), server_name.to_string());
-            self.resource_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.resource_index
+                .insert(resource.uri.clone(), server_name.to_string());
+            self.resource_index
+                .insert(registered.fqn.clone(), server_name.to_string());
             self.all_resources.push(registered);
         }
 
         // Re-index prompts
         for prompt in &prompts {
             let registered = RegisteredPrompt::new(prompt.clone(), server_name);
-            self.prompt_index.insert(prompt.name.clone(), server_name.to_string());
-            self.prompt_index.insert(registered.fqn.clone(), server_name.to_string());
+            self.prompt_index
+                .insert(prompt.name.clone(), server_name.to_string());
+            self.prompt_index
+                .insert(registered.fqn.clone(), server_name.to_string());
             self.all_prompts.push(registered);
         }
 
@@ -493,8 +502,14 @@ impl Multiplexer {
             "✅ Server '{}' reconnected — {} tools, {} resources, {} prompts restored",
             server_name,
             tool_count,
-            self.servers.get(server_name).map(|s| s.resources.len()).unwrap_or(0),
-            self.servers.get(server_name).map(|s| s.prompts.len()).unwrap_or(0),
+            self.servers
+                .get(server_name)
+                .map(|s| s.resources.len())
+                .unwrap_or(0),
+            self.servers
+                .get(server_name)
+                .map(|s| s.prompts.len())
+                .unwrap_or(0),
         );
 
         tool_count

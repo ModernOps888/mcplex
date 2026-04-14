@@ -118,10 +118,20 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize the multiplexer
     let (multiplexer, death_rx) = Multiplexer::new(&app_config).await?;
-    let connected_count = multiplexer.get_server_statuses().iter()
-        .filter(|s| s.get("connected").and_then(|v| v.as_bool()).unwrap_or(false))
+    let connected_count = multiplexer
+        .get_server_statuses()
+        .iter()
+        .filter(|s| {
+            s.get("connected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
         .count();
-    info!("🔌 Connected to {}/{} MCP server(s)", connected_count, app_config.servers.len());
+    info!(
+        "🔌 Connected to {}/{} MCP server(s)",
+        connected_count,
+        app_config.servers.len()
+    );
 
     // Initialize the router
     let router = router::create_router(&app_config);

@@ -55,11 +55,7 @@ impl SemanticRouter {
     /// When `idf_weights` is provided, each token's contribution to the vector
     /// is scaled by its inverse document frequency. Tokens that appear across
     /// many tool descriptions contribute almost nothing; rare tokens dominate.
-    fn embed_weighted(
-        &self,
-        text: &str,
-        idf_weights: Option<&HashMap<String, f32>>,
-    ) -> Vec<f32> {
+    fn embed_weighted(&self, text: &str, idf_weights: Option<&HashMap<String, f32>>) -> Vec<f32> {
         let lower = text.to_lowercase();
         let mut vector = vec![0.0f32; EMBEDDING_DIM];
 
@@ -189,10 +185,8 @@ impl SemanticRouter {
         for tool in tools {
             let text = build_tool_text(tool);
             let lower = text.to_lowercase();
-            let words: std::collections::HashSet<String> = lower
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
+            let words: std::collections::HashSet<String> =
+                lower.split_whitespace().map(|s| s.to_string()).collect();
 
             for word in words {
                 *doc_freq.entry(word).or_insert(0) += 1;
@@ -211,10 +205,7 @@ impl SemanticRouter {
 
     /// Extract unique server names from the tool set (lowercased)
     fn extract_server_names(tools: &[RegisteredTool]) -> std::collections::HashSet<String> {
-        tools
-            .iter()
-            .map(|t| t.server_name.to_lowercase())
-            .collect()
+        tools.iter().map(|t| t.server_name.to_lowercase()).collect()
     }
 }
 
@@ -269,8 +260,7 @@ impl ToolRouter for SemanticRouter {
             .map(|(i, tool)| {
                 // Embed the tool text with IDF weighting
                 let tool_embedding = self.embed_weighted(&tool_texts[i], Some(&idf_weights));
-                let mut similarity =
-                    Self::cosine_similarity(&query_embedding, &tool_embedding);
+                let mut similarity = Self::cosine_similarity(&query_embedding, &tool_embedding);
 
                 // BM25-style length normalization: compensate for cosine dilution
                 // in long documents. A factor > 1.0 for long docs (boost),
@@ -515,9 +505,13 @@ mod tests {
         assert!(!results.is_empty());
         // memory_search should be the top result
         assert_eq!(
-            results[0].definition.name, "memory_search",
+            results[0].definition.name,
+            "memory_search",
             "Expected memory_search to rank #1, got: {:?}",
-            results.iter().map(|t| &t.definition.name).collect::<Vec<_>>()
+            results
+                .iter()
+                .map(|t| &t.definition.name)
+                .collect::<Vec<_>>()
         );
     }
 

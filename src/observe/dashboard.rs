@@ -757,4 +757,3 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
 </body>
 </html>
 "##;
-

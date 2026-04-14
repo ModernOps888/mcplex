@@ -587,10 +587,7 @@ async fn handle_meta_call_tool(
         arguments: real_arguments,
     };
 
-    info!(
-        "🔧 mcplex_call_tool: dispatching '{}'",
-        real_tool_name
-    );
+    info!("🔧 mcplex_call_tool: dispatching '{}'", real_tool_name);
 
     // Dispatch through the normal tool call pipeline (security, cache, audit)
     dispatch_real_tool(state, request, &real_params, start).await

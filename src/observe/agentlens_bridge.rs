@@ -84,10 +84,7 @@ impl AgentLensBridge {
                     debug!("🔗 AgentLens: forwarded tool_call {}", tool_name_owned);
                 }
                 Ok(resp) => {
-                    debug!(
-                        "🔗 AgentLens: forward returned status {}",
-                        resp.status()
-                    );
+                    debug!("🔗 AgentLens: forward returned status {}", resp.status());
                 }
                 Err(e) => {
                     // AgentLens might be offline — that's fine, don't spam logs
