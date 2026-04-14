@@ -567,6 +567,25 @@ mcplex_tokens_saved_total 45000
 mcplex_tool_duration_ms{tool="create_issue",quantile="0.95"} 142
 ```
 
+## 🔍 AgentLens Integration
+
+MCPlex pairs with [AgentLens](https://github.com/ModernOps888/agentlens) for full-stack agent observability. MCPlex handles execution, AgentLens handles visualization — together they cover 100% of the agent lifecycle.
+
+### Enable the Bridge (opt-in)
+
+Add to your `mcplex.toml`:
+
+```toml
+[agentlens]
+enabled = true
+url = "http://127.0.0.1:3000/api/ingest"
+session_name = "MCPlex Gateway"
+```
+
+Every tool call, security event, and routing decision is forwarded to AgentLens's timeline replay UI. The bridge is non-blocking (fire-and-forget) — it never slows down the gateway, even if AgentLens is offline.
+
+> **Note:** MCPlex works 100% independently without AgentLens. The bridge is entirely opt-in.
+
 ## Contributing
 
 Contributions are welcome! Please:

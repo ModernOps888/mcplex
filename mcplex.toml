@@ -94,3 +94,18 @@ max_entries = 1000               # Max cached responses
 # [api_keys."sk-admin-xyz789"]
 # role = "admin"
 # description = "Admin key"
+
+# ─────────────────────────────────────────────
+# AgentLens Bridge (optional — MCPlex works independently without this)
+# Forwards tool call events to AgentLens for visualization in the
+# timeline replay UI. Enable only if you're running AgentLens.
+# ─────────────────────────────────────────────
+
+# [agentlens]
+# enabled = true                                     # Opt-in (default: false)
+# url = "http://127.0.0.1:3000/api/ingest"          # AgentLens ingest endpoint
+# session_name = "MCPlex Gateway"                    # Session name in AgentLens UI
+# forward_tool_calls = true                          # Forward tool invocations
+# forward_security_events = true                     # Forward RBAC blocks, rate limits
+# forward_cache_events = false                       # Forward cache hits/misses (noisy)
+

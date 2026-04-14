@@ -24,6 +24,10 @@ pub struct AppConfig {
     /// API key → role mapping for multi-tenant access
     #[serde(default)]
     pub api_keys: HashMap<String, ApiKeyConfig>,
+    /// Optional: Forward events to AgentLens for visualization
+    /// MCPlex works 100% independently without this — opt-in only
+    #[serde(default)]
+    pub agentlens: AgentLensConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +223,51 @@ fn default_cache_ttl() -> u64 {
 }
 fn default_cache_max() -> usize {
     1000
+}
+fn default_agentlens_url() -> String {
+    "http://127.0.0.1:3000/api/ingest".to_string()
+}
+fn default_agentlens_session() -> String {
+    "MCPlex Gateway".to_string()
+}
+
+/// Optional integration with AgentLens observability platform.
+/// When enabled, MCPlex forwards tool call events to AgentLens for
+/// visualization in the timeline replay UI. MCPlex works perfectly
+/// without this — it is entirely opt-in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentLensConfig {
+    /// Enable the AgentLens bridge (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// AgentLens ingest API URL
+    #[serde(default = "default_agentlens_url")]
+    pub url: String,
+    /// Session name to use in AgentLens (identifies this gateway)
+    #[serde(default = "default_agentlens_session")]
+    pub session_name: String,
+    /// Forward tool call events
+    #[serde(default = "default_true")]
+    pub forward_tool_calls: bool,
+    /// Forward security events (RBAC blocks, rate limit hits)
+    #[serde(default = "default_true")]
+    pub forward_security_events: bool,
+    /// Forward cache hit/miss events (noisy — default false)
+    #[serde(default)]
+    pub forward_cache_events: bool,
+}
+
+impl Default for AgentLensConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: default_agentlens_url(),
+            session_name: default_agentlens_session(),
+            forward_tool_calls: true,
+            forward_security_events: true,
+            forward_cache_events: false,
+        }
+    }
 }
 
 impl Default for CacheConfig {
