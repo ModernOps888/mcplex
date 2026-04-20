@@ -482,6 +482,8 @@ async fn handle_meta_find_tools(
     request: &JsonRpcRequest,
     params: &ToolCallParams,
 ) -> JsonRpcResponse {
+    let start = std::time::Instant::now();
+
     let query = params
         .arguments
         .as_ref()
@@ -491,6 +493,12 @@ async fn handle_meta_find_tools(
         .to_string();
 
     if query.is_empty() {
+        state.metrics.record_event(EventType::ToolCall {
+            tool_name: "mcplex_find_tools".to_string(),
+            server_name: "mcplex".to_string(),
+            duration_ms: start.elapsed().as_millis() as u64,
+            success: false,
+        });
         return JsonRpcResponse::error(
             request.id.clone(),
             error_codes::INVALID_PARAMS,
@@ -547,6 +555,13 @@ async fn handle_meta_find_tools(
         }]
     });
 
+    state.metrics.record_event(EventType::ToolCall {
+        tool_name: "mcplex_find_tools".to_string(),
+        server_name: "mcplex".to_string(),
+        duration_ms: start.elapsed().as_millis() as u64,
+        success: true,
+    });
+
     JsonRpcResponse::success(request.id.clone(), result)
 }
 
@@ -598,6 +613,8 @@ async fn handle_meta_list_categories(
     state: &AppState,
     request: &JsonRpcRequest,
 ) -> JsonRpcResponse {
+    let start = std::time::Instant::now();
+
     let multiplexer = state.multiplexer.read().await;
     let all_tools = multiplexer.get_all_tools();
 
@@ -631,6 +648,13 @@ async fn handle_meta_list_categories(
                 "categories": category_list,
             })).unwrap_or_default()
         }]
+    });
+
+    state.metrics.record_event(EventType::ToolCall {
+        tool_name: "mcplex_list_categories".to_string(),
+        server_name: "mcplex".to_string(),
+        duration_ms: start.elapsed().as_millis() as u64,
+        success: true,
     });
 
     JsonRpcResponse::success(request.id.clone(), result)
