@@ -675,7 +675,15 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             const tbody = document.getElementById('tool-stats');
             document.getElementById('tool-count').textContent = tools.length;
             if (!tools.length) {
-                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🔧</div>No tool calls yet</div></td></tr>';
+                // Fixes #10 UX: When requests exist but no tool calls have been
+                // recorded, show a helpful hint instead of the generic empty state.
+                // This addresses the macOS scenario where clients stay in
+                // meta-tool discovery loops without invoking mcplex_call_tool.
+                const reqCount = prevCounters.req || 0;
+                const hint = reqCount > 0
+                    ? `No tool calls recorded yet — gateway has served ${reqCount} request${reqCount !== 1 ? 's' : ''}. Discovery/list traffic doesn't appear here.`
+                    : 'No tool calls yet';
+                tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🔧</div>${hint}</div></td></tr>`;
                 return;
             }
             tbody.innerHTML = tools.map(t => {

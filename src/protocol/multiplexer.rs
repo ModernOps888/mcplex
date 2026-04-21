@@ -1,11 +1,13 @@
 // MCPlex — Multiplexer
 // Aggregates multiple MCP servers into a unified interface.
+// Fixes #11: Overlapping tool names are detected at startup and disambiguated
+// via fully-qualified names (server_name/tool_name) instead of crashing.
 //
 // HTTP servers: stateless JSON-RPC requests via reqwest (connection pooling built-in).
 // Stdio servers: persistent child processes via StdioConnection (long-lived, multiplexed).
 
-use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use std::collections::{HashMap, HashSet};
+use tracing::{debug, error, info, warn};
 
 use crate::config::{AppConfig, ServerConfig};
 use crate::protocol::stdio::StdioConnection;
@@ -108,11 +110,40 @@ impl Multiplexer {
                 );
             }
 
-            // Index tools
+            // Index tools — detect overlapping names across servers (fixes #11).
+            // When two servers register the same bare tool name, we:
+            // 1. Log a clear WARNING so the operator knows about the collision.
+            // 2. Remove the ambiguous bare-name entry so neither server
+            //    "wins" silently (which previously caused wrong-server
+            //    dispatch → SIGABRT).
+            // 3. Keep both tools reachable via their FQN (server/tool).
             for tool in &tools {
                 let registered = RegisteredTool::new(tool.clone(), &server_config.name);
-                tool_index.insert(tool.name.clone(), server_config.name.clone());
+
+                // FQN is always unique (server_name/tool_name) — safe to insert.
                 tool_index.insert(registered.fqn.clone(), server_config.name.clone());
+
+                // Bare name: check for collision with an existing server.
+                if let Some(existing_server) = tool_index.get(&tool.name) {
+                    // If the existing entry points to a *different* server,
+                    // we have an overlap. Mark the bare name as ambiguous.
+                    if existing_server != &server_config.name {
+                        warn!(
+                            "⚠️  Overlapping tool name '{}' registered by servers '{}' and '{}' — \
+                             bare name removed from index. Use FQN (server/tool) to disambiguate.",
+                            tool.name, existing_server, server_config.name
+                        );
+                        // Remove bare name so dispatch doesn't silently pick
+                        // the wrong server (the root cause of the #11 crash).
+                        tool_index.remove(&tool.name);
+                    }
+                    // If same server re-registers the same name (shouldn't
+                    // happen, but harmless), the insert below is a no-op.
+                } else {
+                    // First registration of this bare name — index it.
+                    tool_index.insert(tool.name.clone(), server_config.name.clone());
+                }
+
                 all_tools.push(registered);
             }
 
@@ -142,6 +173,26 @@ impl Multiplexer {
                     prompts,
                     connected,
                 },
+            );
+        }
+
+        // ── Post-indexing: report any remaining ambiguous tool names ──
+        // Collect bare names that were removed due to collisions.
+        let all_bare_names: HashSet<String> = servers
+            .values()
+            .flat_map(|s| s.tools.iter().map(|t| t.name.clone()))
+            .collect();
+        let ambiguous: Vec<&String> = all_bare_names
+            .iter()
+            .filter(|name| !tool_index.contains_key(*name))
+            .collect();
+        if !ambiguous.is_empty() {
+            error!(
+                "🚨 {} tool name(s) are ambiguous across servers and cannot be \
+                 called by bare name: {:?}. Use the fully-qualified name \
+                 (server_name/tool_name) instead.",
+                ambiguous.len(),
+                ambiguous
             );
         }
 
@@ -457,13 +508,25 @@ impl Multiplexer {
 
         let tool_count = tools.len();
 
-        // Re-index tools
+        // Re-index tools (respecting overlap detection from #11)
         for tool in &tools {
             let registered = RegisteredTool::new(tool.clone(), server_name);
-            self.tool_index
-                .insert(tool.name.clone(), server_name.to_string());
+            // FQN is always safe to insert
             self.tool_index
                 .insert(registered.fqn.clone(), server_name.to_string());
+            // Bare name: only insert if no other server already owns it
+            if let Some(existing) = self.tool_index.get(&tool.name) {
+                if existing != server_name {
+                    warn!(
+                        "⚠️  Overlapping tool '{}' on reconnect — bare name remains ambiguous",
+                        tool.name
+                    );
+                    self.tool_index.remove(&tool.name);
+                }
+            } else {
+                self.tool_index
+                    .insert(tool.name.clone(), server_name.to_string());
+            }
             self.all_tools.push(registered);
         }
 
