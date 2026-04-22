@@ -59,10 +59,34 @@ struct Cli {
     /// Validate config and exit
     #[arg(long)]
     check: bool,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Check the health of a running gateway and its connected servers
+    Doctor,
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
+    // Print startup banner to stderr to group fatal errors without tracing
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    eprintln!("=== mcplex startup (unix time: {}) ===", now);
+
+    if let Err(e) = run().await {
+        error!("Fatal error: {:#}", e);
+        eprintln!("[mcplex] Fatal error: {:#}", e);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> anyhow::Result<()> {
     let cli = <Cli as clap::Parser>::parse();
 
     // Initialize tracing
@@ -102,6 +126,10 @@ async fn main() -> anyhow::Result<()> {
         info!("   Servers: {}", app_config.servers.len());
         info!("   Router: {:?}", app_config.router.strategy);
         return Ok(());
+    }
+
+    if let Some(Commands::Doctor) = cli.command {
+        return handle_doctor(&app_config).await;
     }
 
     print_banner();
@@ -225,6 +253,74 @@ async fn main() -> anyhow::Result<()> {
     // Graceful shutdown
     gateway_handle.abort();
     info!("👋 MCPlex stopped. Goodbye!");
+
+    Ok(())
+}
+
+async fn handle_doctor(config: &AppConfig) -> anyhow::Result<()> {
+    let listen = &config.gateway.listen;
+    let url = format!("http://{}/health", listen.replace("0.0.0.0", "127.0.0.1"));
+
+    println!("Gateway: {} [PROBING...]", url);
+
+    let client = reqwest::Client::new();
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Gateway: {} [UNREACHABLE]", url);
+            eprintln!("Error: {}", e);
+            eprintln!("Hint: Is the gateway running? Check your service manager or docker status.");
+            std::process::exit(1);
+        }
+    };
+
+    if !resp.status().is_success() {
+        eprintln!("Gateway: {} [HTTP {}]", url, resp.status());
+        std::process::exit(1);
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+
+    println!("Gateway: {} [OK, uptime {}]", url, data["uptime"].as_str().unwrap_or("unknown"));
+
+    if let Some(dashboard) = &config.gateway.dashboard {
+        println!("Dashboard: http://{} [OK]", dashboard.replace("0.0.0.0", "127.0.0.1"));
+    } else {
+        println!("Dashboard: disabled");
+    }
+
+    let servers = data["servers"].as_array().unwrap();
+    let connected_count = servers.iter().filter(|s| s["connected"].as_bool().unwrap_or(false)).count();
+
+    println!("Servers ({}/{} connected):", connected_count, servers.len());
+
+    for server in servers {
+        let name = server["name"].as_str().unwrap_or("unknown");
+        let status = if server["connected"].as_bool().unwrap_or(false) { "[OK]" } else { "[DOWN]" };
+        let tools = server["tools"].as_i64().unwrap_or(0);
+        let resources = server["resources"].as_i64().unwrap_or(0);
+        let prompts = server["prompts"].as_i64().unwrap_or(0);
+
+        println!("  {} {} {} tools {} resources {} prompts", name, status, tools, resources, prompts);
+    }
+
+    let router = &data["router"];
+    println!("Router: {} ({}, top_k={})", 
+        router["strategy"].as_str().unwrap_or("unknown"),
+        router["mode"].as_str().unwrap_or("unknown"),
+        router["top_k"].as_i64().unwrap_or(0)
+    );
+
+    let cache = &data["cache"];
+    if cache["enabled"].as_bool().unwrap_or(false) {
+        println!("Cache: enabled (TTL {}s)", cache["ttl"].as_i64().unwrap_or(0));
+    } else {
+        println!("Cache: disabled");
+    }
+
+    if connected_count < config.servers.len() {
+        std::process::exit(1);
+    }
 
     Ok(())
 }

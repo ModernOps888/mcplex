@@ -55,11 +55,43 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
 }
 
 /// Health check endpoint
-async fn health_check() -> impl IntoResponse {
+async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let multiplexer = state.multiplexer.read().await;
+    let config = state.config.read().await;
+
+    let counters = state.metrics.get_counters();
+    let uptime_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_sub(counters.started_at_epoch);
+    
+    let hours = uptime_secs / 3600;
+    let minutes = (uptime_secs % 3600) / 60;
+    let seconds = uptime_secs % 60;
+    let uptime = if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    };
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "mcplex",
         "version": env!("CARGO_PKG_VERSION"),
+        "uptime": uptime,
+        "servers": multiplexer.get_server_statuses(),
+        "router": {
+            "mode": format!("{:?}", config.router.mode),
+            "strategy": format!("{:?}", config.router.strategy),
+            "top_k": config.router.top_k,
+        },
+        "cache": {
+            "enabled": config.cache.enabled,
+            "ttl": config.cache.ttl_seconds,
+        }
     }))
 }
 

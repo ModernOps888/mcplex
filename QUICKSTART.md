@@ -7,6 +7,7 @@ Get MCPlex running in **under 2 minutes**. Pick your preferred method:
 | [🐳 Docker](#docker) | ~30s | Production, CI/CD |
 | [📦 Pre-built Binary](#pre-built-binary) | ~60s | Local development |
 | [🔧 Build from Source](#build-from-source) | ~90s | Contributors |
+| [🚀 Service Deployment](README.md#running-as-a-service-deployment) | ~10m | Persistent Background Services |
 
 ---
 

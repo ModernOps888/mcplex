@@ -126,6 +126,94 @@ args = ["-y", "@modelcontextprotocol/server-memory"]
 
 Point your MCP client to `http://127.0.0.1:3100/mcp` and open the dashboard at `http://127.0.0.1:9090`.
 
+## 🚀 Running as a Service (Deployment)
+
+For persistent environments, run MCPlex as a background service to ensure it starts automatically on boot and restarts if it crashes.
+
+### Linux (`systemd`)
+
+Create a systemd unit file at `/etc/systemd/system/mcplex.service`:
+
+```ini
+[Unit]
+Description=MCPlex Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/mcplex
+ExecStart=/usr/local/bin/mcplex --config /path/to/mcplex/mcplex.toml
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mcplex
+sudo systemctl start mcplex
+sudo systemctl status mcplex
+```
+
+### macOS (`launchd`)
+
+Create a launchd plist file at `~/Library/LaunchAgents/com.modernops.mcplex.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.modernops.mcplex</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/mcplex</string>
+        <string>--config</string>
+        <string>/path/to/mcplex.toml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/mcplex.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/mcplex-error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
+```
+
+Load and start the service:
+```bash
+launchctl load ~/Library/LaunchAgents/com.modernops.mcplex.plist
+launchctl start com.modernops.mcplex
+```
+
+### Log Rotation
+
+When running as a service, ensure you implement log rotation to prevent infinite log growth. For macOS, add an entry to `/etc/newsyslog.conf`; for Linux, use `logrotate`. MCPlex also has built-in audit log rotation configured via `max_log_size_mb`.
+
+### Service Troubleshooting
+
+| Issue | Resolution |
+|-------|------------|
+| Service fails to start immediately | Check your configuration file syntax by running `mcplex --check --config <path>` manually. |
+| Port already in use | Verify no other service is bound to the `listen` port. Change `gateway.listen` in your config. |
+| `launchd` permission errors | Ensure the `ProgramArguments` path is absolute and executable by the user. |
+| Server respawn loop | Check the `StandardErrorPath` log for fatal bootstrap errors or missing dependencies (e.g., Node.js for `npx` servers). |
+
+---
+
 ## 🔌 How to Connect Your Agent
 
 MCPlex is a **transparent MCP proxy** — any MCP client that supports Streamable HTTP can connect to it. Your agent talks to MCPlex as if it were a single MCP server, and MCPlex handles multiplexing, routing, and security behind the scenes.
