@@ -3,8 +3,9 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -352,6 +353,18 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
     const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
     const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+    // Circuit breaker: the MAX_RESPAWN_ATTEMPTS cap only guards a single
+    // respawn task. A server whose `connect()` succeeds but then crashes
+    // seconds later (e.g. a misconfigured backend) emits a fresh death event
+    // every cycle, each spawning a brand-new respawn task with a fresh
+    // counter — an unbounded crash loop that can exhaust file descriptors and
+    // melt the host. Track death timestamps per server (this `while` loop is
+    // the single consumer of `death_rx`, so a plain map needs no lock) and
+    // stop respawning a server that dies too often in a short window.
+    const CRASH_WINDOW: Duration = Duration::from_secs(60);
+    const MAX_CRASHES_IN_WINDOW: usize = 5;
+    let mut crash_history: HashMap<String, Vec<Instant>> = HashMap::new();
+
     while let Some(server_name) = death_rx.recv().await {
         // Phase 1: Clean up — mark disconnected and remove from routing
         let tools_removed = {
@@ -363,6 +376,25 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
             server_name: server_name.clone(),
             tools_removed,
         });
+
+        // Circuit breaker: record this death and bail out of respawning if
+        // the server has crash-looped past the threshold within CRASH_WINDOW.
+        {
+            let now = Instant::now();
+            let deaths = crash_history.entry(server_name.clone()).or_default();
+            deaths.retain(|t| now.duration_since(*t) < CRASH_WINDOW);
+            deaths.push(now);
+            if deaths.len() > MAX_CRASHES_IN_WINDOW {
+                error!(
+                    "🔌 Server '{}' crashed {} times within {:?} — circuit breaker OPEN, \
+                     abandoning respawn. Fix the server, then restart mcplex to re-enable it.",
+                    server_name,
+                    deaths.len(),
+                    CRASH_WINDOW
+                );
+                continue;
+            }
+        }
 
         // Phase 2: Respawn with exponential backoff
         let config = {
