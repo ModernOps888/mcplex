@@ -503,6 +503,9 @@ MCPlex aggregates and forwards **all three** MCP capability types from upstream 
 | `enable_audit_log` | bool | `false` | Enable structured audit logging |
 | `audit_log_path` | string | `./logs/audit.jsonl` | Audit log file path |
 | `max_log_size_mb` | int | `100` | Max log file size before rotation (keeps 5 backups) |
+| `circuit_breaker_max_crashes` | int | `5` | Max crashes within the window before respawns are blocked |
+| `circuit_breaker_window_secs` | int | `60` | Sliding window (seconds) for crash counting |
+| `request_timeout_secs` | int | `30` | Per-server request timeout for HTTP upstream calls (0 = no timeout) |
 
 ### `[[servers]]`
 
@@ -688,6 +691,13 @@ Contributions are welcome! Please:
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## 🔧 Recent Changes (v0.3.1 — Hardening)
+
+- **Shared HTTP Client** — Replaced per-call `reqwest::Client::new()` with a pooled static client. Enables HTTP/2 connection reuse, TLS session resumption, and 30s request timeouts.
+- **Circuit Breaker Config** — `circuit_breaker_max_crashes`, `circuit_breaker_window_secs`, and `request_timeout_secs` are now configurable in `[security]` (previously hardcoded).
+- **Env-Var Expansion Fix** — `${ENV_VAR}` expansion now uses a single-pass cursor instead of a `while`-loop, preventing infinite loops if a resolved value itself contains `${`.
+- **Rate Limiter Memory Fix** — Stale client IP entries are now pruned every 100 checks (entries idle >5 min), preventing unbounded HashMap growth.
 
 ---
 

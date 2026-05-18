@@ -87,6 +87,15 @@ pub struct SecurityConfig {
     /// Maximum audit log file size in MB before rotation
     #[serde(default = "default_max_log_size")]
     pub max_log_size_mb: u64,
+    /// Circuit breaker: max crashes within the window before respawns are blocked
+    #[serde(default = "default_cb_max_crashes")]
+    pub circuit_breaker_max_crashes: usize,
+    /// Circuit breaker: sliding window duration in seconds
+    #[serde(default = "default_cb_window_secs")]
+    pub circuit_breaker_window_secs: u64,
+    /// Per-server request timeout in seconds for HTTP upstream calls (0 = no timeout)
+    #[serde(default = "default_request_timeout")]
+    pub request_timeout_secs: u64,
 }
 
 /// Cache configuration for tool response caching
@@ -224,6 +233,15 @@ fn default_cache_ttl() -> u64 {
 fn default_cache_max() -> usize {
     1000
 }
+fn default_cb_max_crashes() -> usize {
+    5
+}
+fn default_cb_window_secs() -> u64 {
+    60
+}
+fn default_request_timeout() -> u64 {
+    30
+}
 fn default_agentlens_url() -> String {
     "http://127.0.0.1:3000/api/ingest".to_string()
 }
@@ -300,6 +318,9 @@ impl Default for SecurityConfig {
             enable_audit_log: false,
             audit_log_path: default_audit_path(),
             max_log_size_mb: default_max_log_size(),
+            circuit_breaker_max_crashes: default_cb_max_crashes(),
+            circuit_breaker_window_secs: default_cb_window_secs(),
+            request_timeout_secs: default_request_timeout(),
         }
     }
 }
@@ -320,22 +341,38 @@ pub fn load_config(path: &str) -> anyhow::Result<AppConfig> {
     Ok(config)
 }
 
-/// Expand ${ENV_VAR} references in config strings
+/// Expand ${ENV_VAR} references in config strings.
+///
+/// Uses a single-pass cursor approach to prevent infinite loops:
+/// the old `while let` loop would loop forever if an env var's
+/// resolved value itself contained `${`.
 fn expand_env_vars(content: &str) -> String {
-    let mut result = content.to_string();
-    // Find all ${...} patterns and replace with env values
-    while let Some(start) = result.find("${") {
-        if let Some(end) = result[start..].find('}') {
-            let var_name = &result[start + 2..start + end];
-            let value = std::env::var(var_name).unwrap_or_default();
-            result = format!(
-                "{}{}{}",
-                &result[..start],
-                value,
-                &result[start + end + 1..]
-            );
+    let mut result = String::with_capacity(content.len());
+    let mut cursor = 0;
+    let bytes = content.as_bytes();
+
+    while cursor < bytes.len() {
+        // Look for the next '${' starting at cursor
+        if let Some(rel_start) = content[cursor..].find("${") {
+            let abs_start = cursor + rel_start;
+            // Look for the closing '}' after '${'
+            if let Some(rel_end) = content[abs_start + 2..].find('}') {
+                let abs_end = abs_start + 2 + rel_end;
+                let var_name = &content[abs_start + 2..abs_end];
+                let value = std::env::var(var_name).unwrap_or_default();
+                // Append everything before '${' plus the resolved value
+                result.push_str(&content[cursor..abs_start]);
+                result.push_str(&value);
+                cursor = abs_end + 1; // skip past '}'
+            } else {
+                // No closing '}' — append remainder as-is
+                result.push_str(&content[cursor..]);
+                return result;
+            }
         } else {
-            break;
+            // No more '${' — append remainder
+            result.push_str(&content[cursor..]);
+            return result;
         }
     }
     result

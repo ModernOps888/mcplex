@@ -924,12 +924,17 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Instant;
 
-/// Simple in-memory rate limiter using token bucket per client IP
+/// Simple in-memory rate limiter using token bucket per client IP.
+///
+/// Includes periodic cleanup of stale entries to prevent unbounded
+/// memory growth from transient clients.
 pub struct RateLimiter {
     /// Max requests per second (0 = unlimited)
     rps: u32,
     /// Buckets per client IP
     buckets: RwLock<HashMap<String, TokenBucket>>,
+    /// Counter for triggering periodic cleanup
+    check_count: std::sync::atomic::AtomicU64,
 }
 
 struct TokenBucket {
@@ -944,13 +949,23 @@ impl RateLimiter {
         Self {
             rps,
             buckets: RwLock::new(HashMap::new()),
+            check_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
-    /// Check if a request from this client should be allowed
+    /// Check if a request from this client should be allowed.
+    ///
+    /// Every 100 checks, stale entries (no activity in >5 min) are
+    /// pruned to prevent unbounded memory growth from transient clients.
     pub fn check(&self, client_id: &str) -> bool {
         if self.rps == 0 {
             return true; // Unlimited
+        }
+
+        // Periodic cleanup: prune stale entries every 100 checks
+        let count = self.check_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 100 == 99 {
+            self.cleanup_stale_entries();
         }
 
         let max_tokens = self.rps as f64 * 2.0; // Allow burst of 2x
@@ -981,6 +996,23 @@ impl RateLimiter {
             }
         } else {
             true // If lock fails, allow (don't fail closed on internal errors)
+        }
+    }
+
+    /// Remove client entries that haven't been seen in over 5 minutes.
+    /// Prevents unbounded HashMap growth from transient IPs.
+    fn cleanup_stale_entries(&self) {
+        const STALE_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(300);
+        if let Ok(mut buckets) = self.buckets.write() {
+            let now = Instant::now();
+            let before = buckets.len();
+            buckets.retain(|_, bucket| {
+                now.duration_since(bucket.last_refill) < STALE_THRESHOLD
+            });
+            let removed = before - buckets.len();
+            if removed > 0 {
+                tracing::debug!("🧹 Rate limiter: pruned {} stale client entries", removed);
+            }
         }
     }
 }

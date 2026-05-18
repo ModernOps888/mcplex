@@ -481,12 +481,18 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
     const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
     // ── Circuit breaker thresholds (cross-cycle) ─────────────────────────
-    // If a server dies >= MAX_CRASHES_IN_WINDOW times within CRASH_WINDOW,
-    // all further respawn attempts are blocked until the window elapses.
-    const MAX_CRASHES_IN_WINDOW: usize = 5;
-    const CRASH_WINDOW: Duration = Duration::from_secs(60);
+    // Configurable via [security] in mcplex.toml.  If a server dies
+    // >= max_crashes times within crash_window, all further respawn
+    // attempts are blocked until the window elapses.
+    let (cb_max_crashes, cb_window) = {
+        let cfg = state.config.read().await;
+        (
+            cfg.security.circuit_breaker_max_crashes,
+            Duration::from_secs(cfg.security.circuit_breaker_window_secs),
+        )
+    };
 
-    let mut breaker = CircuitBreaker::new(CRASH_WINDOW, MAX_CRASHES_IN_WINDOW);
+    let mut breaker = CircuitBreaker::new(cb_window, cb_max_crashes);
 
     while let Some(server_name) = death_rx.recv().await {
         // ── Phase 1: Clean up — mark disconnected, remove from routing ──
@@ -511,7 +517,7 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
                  Respawn suspended until the window elapses. \
                  Check server configuration / credentials. \
                  (See https://github.com/ModernOps888/mcplex/issues/16)",
-                server_name, MAX_CRASHES_IN_WINDOW, CRASH_WINDOW,
+                server_name, cb_max_crashes, cb_window,
             );
             continue; // Skip respawn entirely
         }

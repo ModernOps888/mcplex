@@ -590,8 +590,26 @@ impl Multiplexer {
 }
 
 // ═════════════════════════════════════════════════════════════
-// HTTP helpers (stateless — reqwest handles connection pooling)
+// HTTP helpers — shared client with connection pooling & timeouts
 // ═════════════════════════════════════════════════════════════
+
+/// Shared HTTP client for all upstream HTTP MCP servers.
+///
+/// Using a single client enables HTTP/2 connection pooling, keep-alive,
+/// and TLS session resumption across all calls. The old code created
+/// a fresh `reqwest::Client` per RPC call, which defeated pooling and
+/// wasted resources under load.
+fn shared_http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_max_idle_per_host(4)
+            .build()
+            .expect("Failed to build shared HTTP client")
+    })
+}
 
 /// Send a generic JSON-RPC request over HTTP and return the `result`
 async fn rpc_http(
@@ -599,7 +617,7 @@ async fn rpc_http(
     method: &str,
     params: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
-    let client = reqwest::Client::new();
+    let client = shared_http_client();
     let request_body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
