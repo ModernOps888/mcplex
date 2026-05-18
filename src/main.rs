@@ -3,8 +3,9 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -344,16 +345,151 @@ fn print_banner() {
     println!("{}", banner);
 }
 
-/// Dead-server monitor: receives death notifications from stdio child watchdogs,
-/// cleans up multiplexer state, records dashboard events, and attempts respawn
-/// with exponential backoff.
+// ---------------------------------------------------------------------------
+// Circuit Breaker — cross-cycle crash protection  (fixes #16)
+//
+// Tracks per-server death timestamps in a sliding window.  When a server
+// exceeds `max_crashes` deaths within `window`, the breaker *trips* and
+// blocks all further respawn attempts for that server until the window
+// elapses (automatic recovery).
+//
+// Design notes (future-proofing):
+//   • The struct is self-contained and has no async dependencies — easy to
+//     unit-test or extract into its own module.
+//   • Thresholds are stored as fields, not hard-coded constants, so they
+//     can be wired to config or per-server overrides without refactoring.
+//   • `is_tripped` auto-prunes stale timestamps, bounding memory to
+//     O(max_crashes × num_servers).
+//   • A `status()` helper returns structured state for future dashboard /
+//     /health endpoint integration.
+// ---------------------------------------------------------------------------
+
+/// Per-server circuit breaker that prevents unbounded respawn loops.
+///
+/// A single `CircuitBreaker` instance lives in the `dead_server_monitor`
+/// loop (the sole consumer of `death_rx`), so no locking is required.
+struct CircuitBreaker {
+    /// Sliding-window duration within which crashes are counted.
+    window: Duration,
+    /// Maximum crashes allowed inside `window` before the breaker trips.
+    max_crashes: usize,
+    /// Per-server ring of death timestamps, newest last.
+    history: HashMap<String, Vec<Instant>>,
+}
+
+/// Snapshot of a single server's circuit-breaker state, useful for
+/// dashboards, health endpoints, or structured logging.
+#[allow(dead_code)]
+struct CircuitBreakerStatus {
+    /// Number of crashes recorded inside the current window.
+    crashes_in_window: usize,
+    /// Whether the breaker is currently tripped (respawns blocked).
+    tripped: bool,
+    /// Time until the oldest crash falls out of the window (i.e. when the
+    /// breaker will auto-recover).  `None` if not tripped.
+    recovery_in: Option<Duration>,
+}
+
+impl CircuitBreaker {
+    /// Create a new circuit breaker with the given thresholds.
+    fn new(window: Duration, max_crashes: usize) -> Self {
+        Self {
+            window,
+            max_crashes,
+            history: HashMap::new(),
+        }
+    }
+
+    /// Record a death event for `server_name` and return `true` if the
+    /// breaker has tripped (i.e. this server should NOT be respawned).
+    ///
+    /// Internally prunes timestamps older than `self.window` to keep
+    /// memory bounded.
+    fn record_death(&mut self, server_name: &str) -> bool {
+        let now = Instant::now();
+        let timestamps = self.history.entry(server_name.to_owned()).or_default();
+
+        // Prune expired timestamps outside the sliding window.
+        timestamps.retain(|t| now.duration_since(*t) < self.window);
+
+        // Record the new death event.
+        timestamps.push(now);
+
+        // Trip if we've exceeded the threshold.
+        timestamps.len() >= self.max_crashes
+    }
+
+    /// Check whether respawns are currently blocked for `server_name`
+    /// without recording a new event.  Also prunes stale entries.
+    #[allow(dead_code)]
+    fn is_tripped(&mut self, server_name: &str) -> bool {
+        let now = Instant::now();
+        if let Some(timestamps) = self.history.get_mut(server_name) {
+            timestamps.retain(|t| now.duration_since(*t) < self.window);
+            timestamps.len() >= self.max_crashes
+        } else {
+            false
+        }
+    }
+
+    /// Return a structured snapshot of the breaker state for a server.
+    /// Useful for `/health` or dashboard integration.
+    #[allow(dead_code)]
+    fn status(&mut self, server_name: &str) -> CircuitBreakerStatus {
+        let now = Instant::now();
+        let timestamps = self.history.entry(server_name.to_owned()).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < self.window);
+
+        let crashes_in_window = timestamps.len();
+        let tripped = crashes_in_window >= self.max_crashes;
+
+        // Recovery happens when the oldest crash exits the window.
+        let recovery_in = if tripped {
+            timestamps
+                .first()
+                .map(|oldest| self.window.saturating_sub(now.duration_since(*oldest)))
+        } else {
+            None
+        };
+
+        CircuitBreakerStatus {
+            crashes_in_window,
+            tripped,
+            recovery_in,
+        }
+    }
+
+    /// Clear all history for a server (e.g. after a manual config reload
+    /// or explicit operator reset).
+    #[allow(dead_code)]
+    fn reset(&mut self, server_name: &str) {
+        self.history.remove(server_name);
+    }
+}
+
+/// Dead-server monitor: receives death notifications from stdio child
+/// watchdogs, cleans up multiplexer state, records dashboard events, and
+/// attempts respawn with exponential backoff.
+///
+/// A cross-cycle `CircuitBreaker` prevents unbounded process-spawn loops
+/// when a server crashes immediately after a successful `connect()`.
+/// See <https://github.com/ModernOps888/mcplex/issues/16>.
 async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) {
+    // ── Respawn-attempt constants (per cycle) ────────────────────────────
     const MAX_RESPAWN_ATTEMPTS: u32 = 5;
     const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
     const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+    // ── Circuit breaker thresholds (cross-cycle) ─────────────────────────
+    // If a server dies >= MAX_CRASHES_IN_WINDOW times within CRASH_WINDOW,
+    // all further respawn attempts are blocked until the window elapses.
+    const MAX_CRASHES_IN_WINDOW: usize = 5;
+    const CRASH_WINDOW: Duration = Duration::from_secs(60);
+
+    let mut breaker = CircuitBreaker::new(CRASH_WINDOW, MAX_CRASHES_IN_WINDOW);
+
     while let Some(server_name) = death_rx.recv().await {
-        // Phase 1: Clean up — mark disconnected and remove from routing
+        // ── Phase 1: Clean up — mark disconnected, remove from routing ──
         let tools_removed = {
             let mut mux = state.multiplexer.write().await;
             mux.mark_server_disconnected(&server_name)
@@ -364,7 +500,23 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
             tools_removed,
         });
 
-        // Phase 2: Respawn with exponential backoff
+        // ── Phase 2: Circuit breaker gate ────────────────────────────────
+        // Record this death and check whether the breaker has tripped.
+        // This is the key fix for #16: without it, every death event
+        // spawned a fresh respawn task with its own independent 1..=5
+        // counter, leading to unbounded process fan-out.
+        if breaker.record_death(&server_name) {
+            error!(
+                "🔴 Circuit breaker TRIPPED for '{}' — {} crashes in the last {:?}. \
+                 Respawn suspended until the window elapses. \
+                 Check server configuration / credentials. \
+                 (See https://github.com/ModernOps888/mcplex/issues/16)",
+                server_name, MAX_CRASHES_IN_WINDOW, CRASH_WINDOW,
+            );
+            continue; // Skip respawn entirely
+        }
+
+        // ── Phase 3: Respawn with exponential backoff ────────────────────
         let config = {
             let mux = state.multiplexer.read().await;
             mux.get_server_config(&server_name).cloned()
@@ -375,7 +527,7 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
             continue;
         };
 
-        // Only respawn stdio servers
+        // Only respawn stdio servers (SSE/HTTP servers reconnect on demand)
         if config.command.is_none() {
             continue;
         }
@@ -389,7 +541,7 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
         let name_for_respawn = server_name.clone();
 
         // Spawn respawn attempts in a separate task so we don't block
-        // the monitor from handling other server deaths concurrently
+        // the monitor from handling other server deaths concurrently.
         tokio::spawn(async move {
             let mut delay = INITIAL_BACKOFF;
 
