@@ -1,7 +1,7 @@
 // MCPlex — The MCP Smart Gateway
 // Copyright (c) 2026 ModernOps888. MIT License.
 
-#![allow(dead_code)]
+// v0.4.0: Removed #![allow(dead_code)] — all dead code issues resolved
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,8 +14,10 @@ mod observe;
 mod protocol;
 mod router;
 mod security;
+mod util;
 
 use config::AppConfig;
+use observe::agentlens_bridge::AgentLensBridge;
 use observe::dashboard::DashboardServer;
 use observe::metrics::{EventType, MetricsCollector};
 use protocol::cache::ToolCache;
@@ -31,6 +33,8 @@ pub struct AppState {
     pub security: RwLock<SecurityEngine>,
     pub router: RwLock<Box<dyn ToolRouter + Send + Sync>>,
     pub cache: ToolCache,
+    /// v0.4.0: AgentLens bridge for forwarding events to timeline UI (opt-in)
+    pub agentlens: Option<std::sync::Arc<AgentLensBridge>>,
 }
 
 #[derive(clap::Parser)]
@@ -190,6 +194,12 @@ async fn run() -> anyhow::Result<()> {
         );
     }
 
+    // v0.4.0: Initialize AgentLens bridge (opt-in, non-blocking event forwarding)
+    let agentlens = AgentLensBridge::new(&app_config.agentlens);
+    if agentlens.is_some() {
+        info!("🔗 AgentLens bridge active — forwarding events to timeline UI");
+    }
+
     // Build shared state
     let state = Arc::new(AppState {
         config: RwLock::new(app_config.clone()),
@@ -198,6 +208,7 @@ async fn run() -> anyhow::Result<()> {
         security: RwLock::new(security),
         router: RwLock::new(router),
         cache,
+        agentlens,
     });
 
     // Start the hot-reload watcher
@@ -328,19 +339,19 @@ async fn handle_doctor(config: &AppConfig) -> anyhow::Result<()> {
 
 fn print_banner() {
     let banner = r#"
-    ╔═══════════════════════════════════════════════════════════════╗
-    ║                                                               ║
-    ║    ███╗   ███╗ ██████╗██████╗ ██╗     ███████╗██╗  ██╗  ║
-    ║    ████╗ ████║██╔════╝██╔══██╗██║     ██╔════╝╚██╗██╔╝  ║
-    ║    ██╔████╔██║██║     ██████╔╝██║     █████╗   ╚███╔╝   ║
-    ║    ██║╚██╔╝██║██║     ██╔═══╝ ██║     ██╔══╝   ██╔██╗   ║
-    ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗██╔╝ ██╗  ║
-    ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝  ║
-    ║                                                               ║
-    ║     The MCP Smart Gateway — v0.3.0                            ║
-    ║     Semantic Routing • Security • Observability               ║
-    ║                                                               ║
-    ╚═══════════════════════════════════════════════════════════════╝
+    ╔══════════════════════════════════════════════════╗
+    ║                                                  ║
+    ║    ███╗   ███╗ ██████╗██████╗ ██╗     ███████╗  ║
+    ║    ████╗ ████║██╔════╝██╔══██╗██║     ██╔════╝  ║
+    ║    ██╔████╔██║██║     ██████╔╝██║     █████╗    ║
+    ║    ██║╚██╔╝██║██║     ██╔═══╝ ██║     ██╔══╝   ║
+    ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗  ║
+    ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝  ║
+    ║                                                  ║
+    ║     The MCP Smart Gateway — v0.4.0               ║
+    ║     Semantic Routing • Security • Observability  ║
+    ║                                                  ║
+    ╚══════════════════════════════════════════════════╝
 "#;
     println!("{}", banner);
 }

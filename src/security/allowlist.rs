@@ -67,36 +67,8 @@ impl AllowlistEngine {
     }
 }
 
-/// Simple glob pattern matching (reused from rbac)
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let pattern_chars: Vec<char> = pattern.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
-    glob_match_recursive(&pattern_chars, &text_chars, 0, 0)
-}
-
-fn glob_match_recursive(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {
-    if pi == pattern.len() && ti == text.len() {
-        return true;
-    }
-    if pi == pattern.len() {
-        return false;
-    }
-    if pattern[pi] == '*' {
-        for i in ti..=text.len() {
-            if glob_match_recursive(pattern, text, pi + 1, i) {
-                return true;
-            }
-        }
-        return false;
-    }
-    if ti == text.len() {
-        return false;
-    }
-    if pattern[pi] == '?' || pattern[pi] == text[ti] {
-        return glob_match_recursive(pattern, text, pi + 1, ti + 1);
-    }
-    false
-}
+// v0.4.0: Use shared glob_match from util.rs (was duplicated in rbac.rs and allowlist.rs)
+use crate::util::glob_match;
 
 #[cfg(test)]
 mod tests {

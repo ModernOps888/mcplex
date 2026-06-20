@@ -5,6 +5,32 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-06-20
+
+### 🔴 Critical Fixes
+- **Wired up Prometheus metrics endpoint** — `/api/prometheus` on dashboard port now returns Prometheus-compatible metrics for scraping (was defined in `export.rs` but never mounted to a route)
+- **Wired up AgentLens bridge** — `[agentlens]` config section now actually creates and uses the bridge for event forwarding to the AgentLens timeline UI (was fully implemented but never instantiated)
+- **Fixed bridge.mjs protocol version** — Updated from `2024-11-05` to `2025-11-25` to match gateway (was a protocol mismatch causing potential negotiation issues)
+- **Fixed RBAC default-allow** — When RBAC is enabled but no role is provided, access is now **denied by default** for security (was incorrectly allowing all access)
+- **Removed unused `which` crate** — Eliminated dead dependency from Cargo.toml
+
+### 🟡 Code Quality
+- **Extracted shared utilities** — `glob_match()`, `now_iso8601()`, `days_to_ymd()`, and `is_leap_year()` deduplicated into new `src/util.rs` module (was duplicated across rbac.rs, allowlist.rs, metrics.rs, and audit.rs)
+- **VecDeque for ring buffers** — Replaced O(n) `Vec::remove(0)` with O(1) `VecDeque::pop_front()` in metrics event buffer and per-tool duration tracking
+- **Connection pooling** — Reuse shared `reqwest::Client` across HTTP upstream calls instead of creating a new client per request (better connection reuse and performance)
+- **Removed `#![allow(dead_code)]`** — All dead code issues resolved; global suppression no longer needed
+- **Fixed `is_multiple_of()` usage** — Replaced nightly-only API with standard modulo operator for broader Rust version compatibility
+- **4 new unit tests** — Added tests for shared utility functions (glob_match, ISO 8601 formatting, leap year, epoch date conversion)
+
+### 🟢 Protocol Upgrade
+- **MCP spec 2025-11-25** — Updated protocol version from `2025-03-26` to current stable `2025-11-25` across all 4 hardcoded locations (multiplexer.rs, stdio.rs, transport.rs, bridge.mjs)
+- **Bridge protocol sync** — Bridge now sends matching protocol version to gateway
+
+### 📝 Documentation
+- Updated Dockerfile to Rust 1.85-slim (from 1.82)
+- Bumped version to 0.4.0 across Cargo.toml and banner
+- Added this CHANGELOG entry
+
 ## [0.3.0] — 2026-04-11
 
 ### Added

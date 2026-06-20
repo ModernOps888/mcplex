@@ -12,6 +12,8 @@ use tower_http::cors::CorsLayer;
 use tracing::info;
 
 use crate::AppState;
+// v0.4.0: Import export module to wire up previously-dead Prometheus endpoint
+use crate::observe::export;
 
 /// Dashboard server
 pub struct DashboardServer;
@@ -26,6 +28,8 @@ impl DashboardServer {
             .route("/api/servers", get(api_servers))
             .route("/api/events", get(api_events))
             .route("/api/config", get(api_config))
+            // v0.4.0: Prometheus-compatible metrics endpoint (was defined but never mounted)
+            .route("/api/prometheus", get(api_prometheus))
             .layer(CorsLayer::permissive())
             .with_state(state);
 
@@ -102,6 +106,20 @@ async fn api_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         },
         "servers_count": config.servers.len(),
     }))
+}
+
+/// API: Prometheus-compatible metrics export
+/// v0.4.0: This endpoint was defined in export.rs but never mounted.
+/// Returns metrics in Prometheus text exposition format for scraping.
+async fn api_prometheus(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let metrics = export::prometheus_metrics(&state);
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        metrics,
+    )
 }
 
 /// Embedded dashboard HTML — single page, no build step needed

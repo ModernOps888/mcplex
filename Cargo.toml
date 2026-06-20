@@ -1,6 +1,6 @@
 [package]
 name = "mcplex"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "MCPlex - The MCP Smart Gateway. Semantic tool routing, security guardrails, and real-time observability for AI agents."
 license = "MIT"
@@ -50,8 +50,7 @@ glob = "0.3"
 # Error handling
 anyhow = "1"
 
-# Process spawning for stdio transport
-which = "7"
+# v0.4.0: Removed unused `which` crate (was imported but never used in source)
 
 [profile.release]
 opt-level = 3

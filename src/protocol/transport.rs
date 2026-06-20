@@ -108,7 +108,7 @@ async fn handle_mcp_request(
 
     let response = match method.as_str() {
         "initialize" => handle_initialize(&state, &request).await,
-        // MCP lifecycle notifications — silently accept per spec (MCP 2025-03-26 §Lifecycle)
+        // MCP lifecycle notifications — silently accept per spec (MCP 2025-11-25 §Lifecycle)
         // These are fire-and-forget notifications; no response content is expected.
         "initialized" | "notifications/initialized" => {
             debug!("📋 Received lifecycle notification: {}", method);
@@ -241,7 +241,7 @@ async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRp
     };
 
     let result = InitializeResult {
-        protocol_version: "2025-03-26".to_string(),
+        protocol_version: "2025-11-25".to_string(),  // v0.4.0: Updated from 2025-03-26
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: Some(serde_json::json!({})),

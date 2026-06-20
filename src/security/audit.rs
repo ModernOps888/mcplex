@@ -4,7 +4,7 @@
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+// v0.4.0: Removed SystemTime/UNIX_EPOCH imports (now delegated to util.rs)
 use tracing::{error, info};
 
 use crate::protocol::ToolCallParams;
@@ -195,53 +195,9 @@ impl AuditLogger {
 }
 
 /// Generate ISO 8601 timestamp without chrono dependency
+/// v0.4.0: Delegates to shared util::now_iso8601() to eliminate duplication
 fn now_iso8601() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let remaining_secs = secs % 86400;
-    let hours = remaining_secs / 3600;
-    let minutes = (remaining_secs % 3600) / 60;
-    let seconds = remaining_secs % 60;
-    let days = secs / 86400;
-    let (year, month, day) = days_to_ymd(days);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
-    let mut y = 1970u64;
-    let mut remaining = days;
-    loop {
-        let diy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
-            366
-        } else {
-            365
-        };
-        if remaining < diy {
-            break;
-        }
-        remaining -= diy;
-        y += 1;
-    }
-    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let dim = if leap {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    let mut m = 0;
-    for (i, &d) in dim.iter().enumerate() {
-        if remaining < d {
-            m = i + 1;
-            break;
-        }
-        remaining -= d;
-    }
-    (y, m as u64, remaining + 1)
+    crate::util::now_iso8601()
 }
 
 #[cfg(test)]

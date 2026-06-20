@@ -2,6 +2,8 @@
 // In-memory ring buffer metrics with per-tool latency, token estimates, and cost tracking
 
 use std::collections::HashMap;
+// v0.4.0: VecDeque for O(1) ring buffer eviction (was O(n) Vec::remove(0))
+use std::collections::VecDeque;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -61,7 +63,8 @@ pub struct ToolStats {
     pub total_duration_ms: u64,
     pub min_duration_ms: u64,
     pub max_duration_ms: u64,
-    pub durations: Vec<u64>,
+    // v0.4.0: VecDeque for O(1) eviction (was Vec with O(n) remove(0))
+    pub durations: VecDeque<u64>,
 }
 
 impl ToolStats {
@@ -85,9 +88,10 @@ impl ToolStats {
             self.error_count += 1;
         }
 
-        self.durations.push(duration_ms);
+        self.durations.push_back(duration_ms);
         if self.durations.len() > 100 {
-            self.durations.remove(0);
+            // v0.4.0: O(1) eviction with VecDeque (was O(n) Vec::remove(0))
+            self.durations.pop_front();
         }
     }
 
@@ -114,7 +118,8 @@ impl ToolStats {
 
 /// Global metrics collector
 pub struct MetricsCollector {
-    events: RwLock<Vec<MetricEvent>>,
+    // v0.4.0: VecDeque for O(1) ring buffer eviction (was Vec with O(n) remove(0))
+    events: RwLock<VecDeque<MetricEvent>>,
     tool_stats: RwLock<HashMap<String, ToolStats>>,
     counters: RwLock<GlobalCounters>,
     max_events: usize,
@@ -138,7 +143,7 @@ impl MetricsCollector {
             .as_secs();
 
         Self {
-            events: RwLock::new(Vec::with_capacity(1000)),
+            events: RwLock::new(VecDeque::with_capacity(1000)),
             tool_stats: RwLock::new(HashMap::new()),
             counters: RwLock::new(GlobalCounters {
                 started_at_epoch: epoch,
@@ -287,9 +292,10 @@ impl MetricsCollector {
 
         if let Ok(mut events) = self.events.write() {
             if events.len() >= self.max_events {
-                events.remove(0);
+                // v0.4.0: O(1) eviction with VecDeque (was O(n) Vec::remove(0))
+                events.pop_front();
             }
-            events.push(metric_event);
+            events.push_back(metric_event);
         }
     }
 
@@ -362,11 +368,11 @@ impl MetricsCollector {
     }
 }
 
-fn percentile(values: &[u64], pct: usize) -> u64 {
+fn percentile(values: &VecDeque<u64>, pct: usize) -> u64 {
     if values.is_empty() {
         return 0;
     }
-    let mut sorted = values.to_vec();
+    let mut sorted: Vec<u64> = values.iter().copied().collect();
     sorted.sort();
     let idx = (pct as f64 / 100.0 * sorted.len() as f64).ceil() as usize;
     sorted[idx.saturating_sub(1).min(sorted.len() - 1)]
@@ -387,58 +393,7 @@ fn format_duration_secs(total_secs: u64) -> String {
 }
 
 /// Generate ISO 8601 timestamp without chrono dependency
+/// v0.4.0: Delegates to shared util::now_iso8601() to eliminate duplication
 fn now_iso8601() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // Rough UTC breakdown (not accounting for leap seconds, but good enough for logging)
-    let days = secs / 86400;
-    let remaining_secs = secs % 86400;
-    let hours = remaining_secs / 3600;
-    let minutes = (remaining_secs % 3600) / 60;
-    let seconds = remaining_secs % 60;
-
-    // Calculate year/month/day from days since epoch (1970-01-01)
-    let (year, month, day) = days_to_ymd(days);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
-    // Simplified date calculation
-    let mut y = 1970;
-    let mut remaining = days;
-
-    loop {
-        let days_in_year = if is_leap_year(y) { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        y += 1;
-    }
-
-    let days_in_months = if is_leap_year(y) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut m = 0;
-    for (i, &dim) in days_in_months.iter().enumerate() {
-        if remaining < dim {
-            m = i + 1;
-            break;
-        }
-        remaining -= dim;
-    }
-
-    (y, m as u64, remaining + 1)
-}
-
-fn is_leap_year(y: u64) -> bool {
-    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
+    crate::util::now_iso8601()
 }

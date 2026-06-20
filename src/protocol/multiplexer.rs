@@ -50,6 +50,8 @@ pub struct Multiplexer {
     all_prompts: Vec<RegisteredPrompt>,
     /// Death notification sender — cloned to each stdio child watchdog
     death_tx: DeathSender,
+    /// v0.4.0: Shared HTTP client for connection pooling across upstream calls
+    http_client: reqwest::Client,
 }
 
 impl Multiplexer {
@@ -218,6 +220,8 @@ impl Multiplexer {
                 all_resources,
                 all_prompts,
                 death_tx,
+                // v0.4.0: Shared HTTP client for connection pooling
+                http_client: reqwest::Client::new(),
             },
             death_rx,
         ))
@@ -273,7 +277,7 @@ impl Multiplexer {
         }
 
         if let Some(ref url) = server.config.url {
-            call_tool_http(url, params).await
+            call_tool_http(&self.http_client, url, params).await
         } else if let Some(conn) = self.stdio_connections.get(server_name) {
             conn.send_request(
                 "tools/call",
@@ -313,7 +317,7 @@ impl Multiplexer {
         debug!("📖 Reading resource '{}' from '{}'", uri, server_name);
 
         if let Some(ref url) = server.config.url {
-            rpc_http(url, "resources/read", serde_json::json!({ "uri": uri })).await
+            rpc_http(&self.http_client, url, "resources/read", serde_json::json!({ "uri": uri })).await
         } else if let Some(conn) = self.stdio_connections.get(&server_name) {
             conn.send_request("resources/read", serde_json::json!({ "uri": uri }))
                 .await
@@ -352,6 +356,7 @@ impl Multiplexer {
 
         if let Some(ref url) = server.config.url {
             rpc_http(
+                &self.http_client,
                 url,
                 "prompts/get",
                 serde_json::json!({
@@ -612,12 +617,14 @@ fn shared_http_client() -> &'static reqwest::Client {
 }
 
 /// Send a generic JSON-RPC request over HTTP and return the `result`
+/// v0.4.0: Now accepts a shared reqwest::Client for connection pooling
 async fn rpc_http(
+    client: &reqwest::Client,
     url: &str,
     method: &str,
     params: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
-    let client = shared_http_client();
+    // v0.4.0: Reuse shared client instead of creating new one per call (v0.4.0: Security fixes, dead code activation, protocol upgrade, code quality)
     let request_body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -641,8 +648,10 @@ async fn rpc_http(
 }
 
 /// Call a tool via HTTP transport
-async fn call_tool_http(url: &str, params: &ToolCallParams) -> anyhow::Result<serde_json::Value> {
+/// v0.4.0: Now accepts shared client for connection pooling
+async fn call_tool_http(client: &reqwest::Client, url: &str, params: &ToolCallParams) -> anyhow::Result<serde_json::Value> {
     rpc_http(
+        client,
         url,
         "tools/call",
         serde_json::json!({
@@ -704,7 +713,7 @@ async fn discover_http_server_inner(
             "id": 1,
             "method": "initialize",
             "params": {
-                "protocolVersion": "2025-03-26",
+                "protocolVersion": "2025-11-25",  // v0.4.0: Updated from 2025-03-26
                 "capabilities": {},
                 "clientInfo": {
                     "name": "mcplex",

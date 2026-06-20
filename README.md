@@ -8,7 +8,7 @@
 [![Release](https://github.com/ModernOps888/mcplex/actions/workflows/release.yml/badge.svg)](https://github.com/ModernOps888/mcplex/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
-[![MCP](https://img.shields.io/badge/MCP-2025--03--26-blue.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue.svg)](https://modelcontextprotocol.io)
 
 *Stop dumping 50k tokens of tool definitions into your LLM's context window.*
 *MCPlex intelligently routes only the tools your agent actually needs.*
@@ -648,7 +648,10 @@ For network access, use a reverse proxy (nginx/caddy) with TLS.
 
 ### Prometheus Monitoring
 
-MCPlex exposes a Prometheus-compatible `/api/metrics` endpoint on the dashboard port for external monitoring:
+MCPlex exposes Prometheus-compatible metrics on the dashboard port for external monitoring:
+
+- **`/api/metrics`** — JSON metrics endpoint
+- **`/api/prometheus`** — Prometheus text exposition format (v0.4.0)
 
 ```
 mcplex_requests_total 1234
@@ -660,7 +663,7 @@ mcplex_tool_duration_ms{tool="create_issue",quantile="0.95"} 142
 
 ## 🔍 AgentLens Integration
 
-MCPlex pairs with [AgentLens](https://github.com/ModernOps888/agentlens) for full-stack agent observability. MCPlex handles execution, AgentLens handles visualization — together they cover 100% of the agent lifecycle.
+MCPlex pairs with [AgentLens](https://github.com/ModernOps888/agentlens) for full-stack agent observability. MCPlex handles execution, AgentLens handles visualization — together they cover 100% of the agent lifecycle. As of v0.4.0, the AgentLens bridge is **fully wired** and active when configured via the `[agentlens]` config section.
 
 ### Enable the Bridge (opt-in)
 

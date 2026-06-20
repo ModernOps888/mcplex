@@ -4,7 +4,8 @@
 # ─────────────────────────────────────
 
 # Stage 1: Build
-FROM rust:1.82-slim AS builder
+# v0.4.0: Updated from rust:1.82-slim to rust:1.85-slim
+FROM rust:1.85-slim AS builder
 
 WORKDIR /build
 

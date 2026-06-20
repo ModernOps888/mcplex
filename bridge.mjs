@@ -143,7 +143,8 @@ async function forwardToMCPlex(id, method, params) {
 async function handleInitialize(id) {
   try {
     const response = await callMCPlex('initialize', '2.0', id, {
-      protocolVersion: '2024-11-05',
+      // v0.4.0: Updated to MCP spec 2025-11-25 (was 2024-11-05, mismatched gateway)
+      protocolVersion: '2025-11-25',
       capabilities: {
         experimental: {},
         roots: { listChanged: true },

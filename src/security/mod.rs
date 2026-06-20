@@ -44,9 +44,10 @@ impl SecurityEngine {
             if let Some(role) = role {
                 return self.rbac.is_allowed(role, tool_fqn);
             }
-            // If RBAC is enabled but no role provided, use default behavior
-            // (allow for now — in production you'd want to deny)
-            return true;
+            // v0.4.0: RBAC enabled but no role provided — deny by default
+            // for security. Clients must provide a valid role via API key
+            // mapping or the request will be rejected.
+            return false;
         }
 
         true

@@ -150,7 +150,7 @@ impl StdioConnection {
             .send_request(
                 "initialize",
                 serde_json::json!({
-                    "protocolVersion": "2025-03-26",
+                    "protocolVersion": "2025-11-25",  // v0.4.0: Updated from 2025-03-26
                     "capabilities": {},
                     "clientInfo": {
                         "name": "mcplex",
