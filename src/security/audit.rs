@@ -156,7 +156,23 @@ impl AuditLogger {
             event: "tool_call".to_string(),
             tool_name: tool_name.to_string(),
             server_name: Some(server_name.to_string()),
-            arguments: params.arguments.clone(),
+            arguments: params.arguments.as_ref().map(redact_sensitive),
+            duration_ms: Some(duration_ms),
+            reason: None,
+            trace_id: Some(uuid::Uuid::new_v4().to_string()),
+        };
+
+        self.write_entry(&entry);
+    }
+
+    /// Record a non-tool access event (resources/read, prompts/get).
+    pub fn log_access(&self, event: &str, target: &str, duration_ms: u64) {
+        let entry = AuditEntry {
+            timestamp: now_iso8601(),
+            event: event.to_string(),
+            tool_name: target.to_string(),
+            server_name: None,
+            arguments: None,
             duration_ms: Some(duration_ms),
             reason: None,
             trace_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -203,6 +219,46 @@ fn now_iso8601() -> String {
     crate::util::now_iso8601()
 }
 
+/// Key substrings considered sensitive — values under matching keys are
+/// replaced with "[REDACTED]" before being written to the audit log so
+/// credentials never persist to disk.
+const SENSITIVE_KEY_PARTS: &[&str] = &[
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "credential",
+    "private_key",
+    "access_key",
+];
+
+/// Recursively redact values whose keys look sensitive.
+fn redact_sensitive(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let redacted = map
+                .iter()
+                .map(|(k, v)| {
+                    let key_lower = k.to_lowercase();
+                    if SENSITIVE_KEY_PARTS.iter().any(|s| key_lower.contains(s)) {
+                        (k.clone(), serde_json::Value::String("[REDACTED]".into()))
+                    } else {
+                        (k.clone(), redact_sensitive(v))
+                    }
+                })
+                .collect();
+            serde_json::Value::Object(redacted)
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(redact_sensitive).collect())
+        }
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +297,59 @@ mod tests {
 
         let entry2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(entry2["event"], "tool_blocked");
+
+        let _ = std::fs::remove_file(&log_path);
+        let _ = std::fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    fn test_redact_sensitive_keys() {
+        let input = serde_json::json!({
+            "username": "alice",
+            "password": "hunter2",
+            "config": {
+                "api_key": "sk-12345",
+                "GitHub_Token": "ghp_abc",
+                "timeout": 30
+            },
+            "items": [{"secret_value": "x", "name": "ok"}]
+        });
+
+        let redacted = redact_sensitive(&input);
+
+        assert_eq!(redacted["username"], "alice");
+        assert_eq!(redacted["password"], "[REDACTED]");
+        assert_eq!(redacted["config"]["api_key"], "[REDACTED]");
+        assert_eq!(redacted["config"]["GitHub_Token"], "[REDACTED]");
+        assert_eq!(redacted["config"]["timeout"], 30);
+        assert_eq!(redacted["items"][0]["secret_value"], "[REDACTED]");
+        assert_eq!(redacted["items"][0]["name"], "ok");
+    }
+
+    #[test]
+    fn test_tool_call_audit_redacts_arguments() {
+        let temp_dir = std::env::temp_dir().join("mcplex_test_audit_redact");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let log_path = temp_dir.join("test_redact.jsonl");
+        let log_path_str = log_path.to_str().unwrap();
+        let _ = std::fs::remove_file(&log_path);
+
+        let logger = AuditLogger::new(log_path_str, true);
+        let params = ToolCallParams {
+            name: "login".to_string(),
+            arguments: Some(serde_json::json!({"user": "bob", "password": "pw"})),
+        };
+        logger.log_tool_call("login", "auth_server", &params, 5);
+
+        let mut content = String::new();
+        std::fs::File::open(&log_path)
+            .unwrap()
+            .read_to_string(&mut content)
+            .unwrap();
+
+        let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+        assert_eq!(entry["arguments"]["user"], "bob");
+        assert_eq!(entry["arguments"]["password"], "[REDACTED]");
 
         let _ = std::fs::remove_file(&log_path);
         let _ = std::fs::remove_dir(&temp_dir);

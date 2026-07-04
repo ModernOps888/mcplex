@@ -5,6 +5,21 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-04
+
+### 🔒 Security
+- **Audit log secret redaction** — Values under sensitive keys (`password`, `token`, `api_key`, `secret`, `credential`, etc.) are recursively replaced with `[REDACTED]` before hitting disk; credentials never persist in `audit.jsonl`
+- **Spoof-proof rate limiting** — Client identity now comes from the real socket address (`ConnectInfo`), falling back to the first `X-Forwarded-For` hop only behind proxies; header spoofing no longer evades limits
+- **Auth/rate-limit denial telemetry** — `auth_denied` and `rate_limited` security events now recorded in metrics and visible in the dashboard event stream
+- **Resource/prompt audit coverage** — `resources/read` and `prompts/get` are now written to the audit trail (`resource_read` / `prompt_get` events); resource URIs capped at 2048 chars
+
+### 🐛 Fixed
+- **Panic on token-savings underflow** — `tools/list` in meta-tool mode panicked (debug builds) when fewer real tools than meta-tools were connected; now uses saturating arithmetic. Found via live smoke test.
+
+### 🧪 Testing
+- 2 new audit redaction tests (31 total)
+- Live smoke test verified: health, initialize, meta-tool listing, input-validation rejection, security counters, dashboard GUI markers
+
 ## [0.5.0] — 2026-07-04
 
 ### 🔒 Security by Design

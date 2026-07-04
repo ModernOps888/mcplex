@@ -73,4 +73,11 @@ impl SecurityEngine {
             self.audit.log_blocked_call(tool_name, reason);
         }
     }
+
+    /// Record an audit log entry for a resource read or prompt fetch
+    pub fn audit_access(&self, event: &str, target: &str, duration_ms: u64) {
+        if self.audit_enabled {
+            self.audit.log_access(event, target, duration_ms);
+        }
+    }
 }

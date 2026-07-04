@@ -218,7 +218,7 @@ impl MetricsCollector {
                 }
             }
             EventType::ToolsList { total, visible } => {
-                let tokens_saved = (total - visible) * 200;
+                let tokens_saved = total.saturating_sub(*visible) * 200;
                 if let Ok(mut counters) = self.counters.write() {
                     counters.total_tokens_saved += tokens_saved as u64;
                 }
@@ -241,7 +241,7 @@ impl MetricsCollector {
                 total_tools,
                 selected_tools,
             } => {
-                let tokens_saved = (total_tools - selected_tools) * 200;
+                let tokens_saved = total_tools.saturating_sub(*selected_tools) * 200;
                 if let Ok(mut counters) = self.counters.write() {
                     counters.total_routing_queries += 1;
                     counters.total_tokens_saved += tokens_saved as u64;

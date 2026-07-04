@@ -55,7 +55,7 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
         .route("/mcp", post(handle_mcp_request))
         .route("/sse", get(handle_sse))
         .layer(axum::middleware::from_fn_with_state(
-            (api_key, api_key_roles, rate_limiter),
+            (api_key, api_key_roles, rate_limiter, Arc::clone(&state)),
             auth_and_rate_limit_middleware,
         ))
         .layer(DefaultBodyLimit::max(1024 * 1024))
@@ -64,7 +64,11 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("🌐 Gateway server started on {}", addr);
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }
@@ -874,6 +878,7 @@ async fn handle_resources_list(state: &AppState, request: &JsonRpcRequest) -> Js
 
 /// Handle resources/read — forward to the appropriate upstream server
 async fn handle_resources_read(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let start = std::time::Instant::now();
     let uri = match request
         .params
         .as_ref()
@@ -890,10 +895,28 @@ async fn handle_resources_read(state: &AppState, request: &JsonRpcRequest) -> Js
         }
     };
 
+    // Basic input hygiene: cap URI length to prevent abuse
+    if uri.len() > 2048 {
+        state.metrics.record_event(EventType::Security {
+            kind: "invalid_resource_uri".to_string(),
+            target: None,
+            detail: Some("uri exceeds 2048 characters".to_string()),
+        });
+        return JsonRpcResponse::error(
+            request.id.clone(),
+            error_codes::INVALID_PARAMS,
+            "Resource URI exceeds maximum length of 2048 characters",
+        );
+    }
+
     let multiplexer = state.multiplexer.read().await;
 
     match multiplexer.read_resource(&uri).await {
-        Ok(result) => JsonRpcResponse::success(request.id.clone(), result),
+        Ok(result) => {
+            let security = state.security.read().await;
+            security.audit_access("resource_read", &uri, start.elapsed().as_millis() as u64);
+            JsonRpcResponse::success(request.id.clone(), result)
+        }
         Err(e) => {
             warn!("Resource read failed for '{}': {}", uri, e);
             JsonRpcResponse::error(
@@ -926,6 +949,7 @@ async fn handle_prompts_list(state: &AppState, request: &JsonRpcRequest) -> Json
 
 /// Handle prompts/get — forward to the appropriate upstream server
 async fn handle_prompts_get(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let start = std::time::Instant::now();
     let (name, arguments) = match request.params.as_ref() {
         Some(params) => {
             let name = params
@@ -952,7 +976,11 @@ async fn handle_prompts_get(state: &AppState, request: &JsonRpcRequest) -> JsonR
     let multiplexer = state.multiplexer.read().await;
 
     match multiplexer.get_prompt(&name, &arguments).await {
-        Ok(result) => JsonRpcResponse::success(request.id.clone(), result),
+        Ok(result) => {
+            let security = state.security.read().await;
+            security.audit_access("prompt_get", &name, start.elapsed().as_millis() as u64);
+            JsonRpcResponse::success(request.id.clone(), result)
+        }
         Err(e) => {
             warn!("Prompt get failed for '{}': {}", name, e);
             JsonRpcResponse::error(
@@ -1138,12 +1166,19 @@ fn extract_api_key(request: &axum::extract::Request) -> Option<String> {
         })
 }
 
-/// Middleware state: (gateway API key, API-key→role map, rate limiter)
-type AuthState = (Option<String>, HashMap<String, String>, Arc<RateLimiter>);
+/// Middleware state: (gateway API key, API-key→role map, rate limiter, app state)
+type AuthState = (
+    Option<String>,
+    HashMap<String, String>,
+    Arc<RateLimiter>,
+    Arc<AppState>,
+);
 
 /// Combined auth + rate limit middleware
 async fn auth_and_rate_limit_middleware(
-    axum::extract::State((api_key, api_key_roles, rate_limiter)): axum::extract::State<AuthState>,
+    axum::extract::State((api_key, api_key_roles, rate_limiter, app_state)): axum::extract::State<
+        AuthState,
+    >,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
@@ -1180,6 +1215,11 @@ async fn auth_and_rate_limit_middleware(
                 "🚫 Unauthorized request to {} — invalid or missing API key",
                 path
             );
+            app_state.metrics.record_event(EventType::Security {
+                kind: "auth_denied".to_string(),
+                target: Some(path.clone()),
+                detail: Some("invalid or missing API key".to_string()),
+            });
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({
@@ -1196,16 +1236,29 @@ async fn auth_and_rate_limit_middleware(
         }
     }
 
-    // Rate limiting
+    // Rate limiting — key on the real socket address (spoof-proof),
+    // not the client-controlled X-Forwarded-For header. Falls back to
+    // XFF only when running behind a proxy that strips ConnectInfo.
     let client_id = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string())
+        .or_else(|| {
+            request
+                .headers()
+                .get("x-forwarded-for")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
 
     if !rate_limiter.check(&client_id) {
         warn!("🚦 Rate limited request from {}", client_id);
+        app_state.metrics.record_event(EventType::Security {
+            kind: "rate_limited".to_string(),
+            target: Some(client_id.clone()),
+            detail: None,
+        });
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(serde_json::json!({
