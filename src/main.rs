@@ -293,31 +293,49 @@ async fn handle_doctor(config: &AppConfig) -> anyhow::Result<()> {
 
     let data: serde_json::Value = resp.json().await?;
 
-    println!("Gateway: {} [OK, uptime {}]", url, data["uptime"].as_str().unwrap_or("unknown"));
+    println!(
+        "Gateway: {} [OK, uptime {}]",
+        url,
+        data["uptime"].as_str().unwrap_or("unknown")
+    );
 
     if let Some(dashboard) = &config.gateway.dashboard {
-        println!("Dashboard: http://{} [OK]", dashboard.replace("0.0.0.0", "127.0.0.1"));
+        println!(
+            "Dashboard: http://{} [OK]",
+            dashboard.replace("0.0.0.0", "127.0.0.1")
+        );
     } else {
         println!("Dashboard: disabled");
     }
 
     let servers = data["servers"].as_array().unwrap();
-    let connected_count = servers.iter().filter(|s| s["connected"].as_bool().unwrap_or(false)).count();
+    let connected_count = servers
+        .iter()
+        .filter(|s| s["connected"].as_bool().unwrap_or(false))
+        .count();
 
     println!("Servers ({}/{} connected):", connected_count, servers.len());
 
     for server in servers {
         let name = server["name"].as_str().unwrap_or("unknown");
-        let status = if server["connected"].as_bool().unwrap_or(false) { "[OK]" } else { "[DOWN]" };
+        let status = if server["connected"].as_bool().unwrap_or(false) {
+            "[OK]"
+        } else {
+            "[DOWN]"
+        };
         let tools = server["tools"].as_i64().unwrap_or(0);
         let resources = server["resources"].as_i64().unwrap_or(0);
         let prompts = server["prompts"].as_i64().unwrap_or(0);
 
-        println!("  {} {} {} tools {} resources {} prompts", name, status, tools, resources, prompts);
+        println!(
+            "  {} {} {} tools {} resources {} prompts",
+            name, status, tools, resources, prompts
+        );
     }
 
     let router = &data["router"];
-    println!("Router: {} ({}, top_k={})", 
+    println!(
+        "Router: {} ({}, top_k={})",
         router["strategy"].as_str().unwrap_or("unknown"),
         router["mode"].as_str().unwrap_or("unknown"),
         router["top_k"].as_i64().unwrap_or(0)
@@ -325,7 +343,10 @@ async fn handle_doctor(config: &AppConfig) -> anyhow::Result<()> {
 
     let cache = &data["cache"];
     if cache["enabled"].as_bool().unwrap_or(false) {
-        println!("Cache: enabled (TTL {}s)", cache["ttl"].as_i64().unwrap_or(0));
+        println!(
+            "Cache: enabled (TTL {}s)",
+            cache["ttl"].as_i64().unwrap_or(0)
+        );
     } else {
         println!("Cache: disabled");
     }
@@ -338,7 +359,8 @@ async fn handle_doctor(config: &AppConfig) -> anyhow::Result<()> {
 }
 
 fn print_banner() {
-    let banner = r#"
+    let banner = format!(
+        r#"
     ╔══════════════════════════════════════════════════╗
     ║                                                  ║
     ║    ███╗   ███╗ ██████╗██████╗ ██╗     ███████╗  ║
@@ -348,11 +370,13 @@ fn print_banner() {
     ║    ██║ ╚═╝ ██║╚██████╗██║     ███████╗███████╗  ║
     ║    ╚═╝     ╚═╝ ╚═════╝╚═╝     ╚══════╝╚══════╝  ║
     ║                                                  ║
-    ║     The MCP Smart Gateway — v0.4.0               ║
+    ║     The MCP Smart Gateway — v{:<20}║
     ║     Semantic Routing • Security • Observability  ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝
-"#;
+"#,
+        env!("CARGO_PKG_VERSION")
+    );
     println!("{}", banner);
 }
 

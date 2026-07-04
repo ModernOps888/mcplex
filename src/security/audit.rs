@@ -38,6 +38,9 @@ struct AuditEntry {
 }
 
 impl AuditLogger {
+    /// Convenience constructor with the default 100 MB rotation limit.
+    /// Kept as public API surface for embedding MCPlex as a library.
+    #[allow(dead_code)]
     pub fn new(log_path: &str, enabled: bool) -> Self {
         Self::with_max_size(log_path, enabled, 100) // Default 100 MB
     }

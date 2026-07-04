@@ -23,6 +23,10 @@ pub struct SemanticRouter {
     cache_enabled: bool,
     /// Cached embeddings: tool_fqn → embedding vector
     embedding_cache: RwLock<HashMap<String, Vec<f32>>>,
+    /// Fingerprint of the tool set the cache was built against.
+    /// When the set of tools changes (server reconnect, hot-reload),
+    /// the IDF weights change too, so the cache must be invalidated.
+    cache_fingerprint: RwLock<u64>,
 }
 
 /// Embedding dimension for character n-grams
@@ -38,7 +42,43 @@ impl SemanticRouter {
             threshold,
             cache_enabled,
             embedding_cache: RwLock::new(HashMap::new()),
+            cache_fingerprint: RwLock::new(0),
         }
+    }
+
+    /// Order-independent fingerprint of a tool set (XOR of FNV hashes).
+    fn toolset_fingerprint(tools: &[RegisteredTool]) -> u64 {
+        tools
+            .iter()
+            .fold(0u64, |acc, t| acc ^ Self::hash_string(&t.fqn))
+    }
+
+    /// Get an IDF-weighted tool embedding, using the cache when enabled.
+    /// The caller is responsible for invalidating the cache when the
+    /// tool set (and therefore the IDF map) changes.
+    fn cached_embedding(
+        &self,
+        fqn: &str,
+        text: &str,
+        idf_weights: &HashMap<String, f32>,
+    ) -> Vec<f32> {
+        if self.cache_enabled {
+            if let Ok(cache) = self.embedding_cache.read() {
+                if let Some(cached) = cache.get(fqn) {
+                    return cached.clone();
+                }
+            }
+        }
+
+        let embedding = self.embed_weighted(text, Some(idf_weights));
+
+        if self.cache_enabled {
+            if let Ok(mut cache) = self.embedding_cache.write() {
+                cache.insert(fqn.to_string(), embedding.clone());
+            }
+        }
+
+        embedding
     }
 
     /// Generate an embedding vector for text using character n-gram hashing
@@ -46,6 +86,7 @@ impl SemanticRouter {
     /// - Partial word matches (subword information)
     /// - Typo resilience
     /// - Semantic proximity of related terms
+    #[allow(dead_code)] // exercised by unit tests
     fn embed(&self, text: &str) -> Vec<f32> {
         self.embed_weighted(text, None)
     }
@@ -146,6 +187,7 @@ impl SemanticRouter {
     }
 
     /// Get or compute embedding for a tool (used for non-IDF path / caching)
+    #[allow(dead_code)] // exercised by unit tests
     fn get_tool_embedding(&self, tool: &RegisteredTool) -> Vec<f32> {
         if self.cache_enabled {
             // Check cache
@@ -218,6 +260,25 @@ impl ToolRouter for SemanticRouter {
         // Compute IDF weights across all tool descriptions
         let idf_weights = Self::compute_idf(tools);
 
+        // Invalidate the embedding cache if the tool set changed (IDF weights
+        // are derived from the whole set, so stale vectors would be wrong).
+        if self.cache_enabled {
+            let fingerprint = Self::toolset_fingerprint(tools);
+            let stale = self
+                .cache_fingerprint
+                .read()
+                .map(|f| *f != fingerprint)
+                .unwrap_or(true);
+            if stale {
+                if let Ok(mut cache) = self.embedding_cache.write() {
+                    cache.clear();
+                }
+                if let Ok(mut f) = self.cache_fingerprint.write() {
+                    *f = fingerprint;
+                }
+            }
+        }
+
         // Embed the query with IDF weighting
         let query_embedding = self.embed_weighted(query, Some(&idf_weights));
 
@@ -258,8 +319,9 @@ impl ToolRouter for SemanticRouter {
             .iter()
             .enumerate()
             .map(|(i, tool)| {
-                // Embed the tool text with IDF weighting
-                let tool_embedding = self.embed_weighted(&tool_texts[i], Some(&idf_weights));
+                // Embed the tool text with IDF weighting (cached across route calls
+                // for the same tool set — a large win with many tools)
+                let tool_embedding = self.cached_embedding(&tool.fqn, &tool_texts[i], &idf_weights);
                 let mut similarity = Self::cosine_similarity(&query_embedding, &tool_embedding);
 
                 // BM25-style length normalization: compensate for cosine dilution

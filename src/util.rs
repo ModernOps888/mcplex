@@ -89,9 +89,8 @@ pub fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 /// Check if a year is a leap year.
-/// v0.4.0: Uses modulo operator instead of is_multiple_of() for broader Rust compatibility.
 pub fn is_leap_year(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 #[cfg(test)]

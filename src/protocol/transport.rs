@@ -2,12 +2,14 @@
 // Handles stdio and Streamable HTTP transports for both client-facing and upstream connections
 
 use axum::{
+    extract::DefaultBodyLimit,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info, warn};
@@ -23,6 +25,12 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
     let has_api_key = config.gateway.api_key.is_some();
     let api_key = config.gateway.api_key.clone();
     let rate_limit = config.gateway.rate_limit_rps;
+    let api_key_roles: HashMap<String, String> = config
+        .api_keys
+        .iter()
+        .filter(|(_, cfg)| cfg.enabled)
+        .map(|(key, cfg)| (key.clone(), cfg.role.clone()))
+        .collect();
     drop(config);
 
     if has_api_key {
@@ -30,6 +38,12 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
     }
     if rate_limit > 0 {
         info!("🚦 Rate limiting: {} req/s", rate_limit);
+    }
+    if !api_key_roles.is_empty() {
+        info!(
+            "🔐 Multi-tenant role binding enabled for {} API key(s)",
+            api_key_roles.len()
+        );
     }
 
     // Build rate limiter state
@@ -41,9 +55,10 @@ pub async fn start_gateway_server(addr: &str, state: Arc<AppState>) -> anyhow::R
         .route("/mcp", post(handle_mcp_request))
         .route("/sse", get(handle_sse))
         .layer(axum::middleware::from_fn_with_state(
-            (api_key, rate_limiter),
+            (api_key, api_key_roles, rate_limiter),
             auth_and_rate_limit_middleware,
         ))
+        .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -65,7 +80,7 @@ async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .unwrap_or_default()
         .as_secs()
         .saturating_sub(counters.started_at_epoch);
-    
+
     let hours = uptime_secs / 3600;
     let minutes = (uptime_secs % 3600) / 60;
     let seconds = uptime_secs % 60;
@@ -98,6 +113,7 @@ async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// Handle incoming MCP JSON-RPC requests over HTTP
 async fn handle_mcp_request(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<JsonRpcRequest>,
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
@@ -118,7 +134,7 @@ async fn handle_mcp_request(
             );
         }
         "tools/list" => handle_tools_list(&state, &request).await,
-        "tools/call" => handle_tools_call(&state, &request).await,
+        "tools/call" => handle_tools_call(&state, &request, &headers).await,
         "resources/list" => handle_resources_list(&state, &request).await,
         "resources/read" => handle_resources_read(&state, &request).await,
         "prompts/list" => handle_prompts_list(&state, &request).await,
@@ -241,7 +257,7 @@ async fn handle_initialize(state: &AppState, request: &JsonRpcRequest) -> JsonRp
     };
 
     let result = InitializeResult {
-        protocol_version: "2025-11-25".to_string(),  // v0.4.0: Updated from 2025-03-26
+        protocol_version: "2025-11-25".to_string(), // v0.4.0: Updated from 2025-03-26
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: Some(serde_json::json!({})),
@@ -468,7 +484,11 @@ async fn handle_tools_list_legacy(state: &AppState, request: &JsonRpcRequest) ->
 
 /// Handle tools/call — execute a tool on the appropriate upstream server
 /// Also intercepts meta-tool calls (mcplex_find_tools, mcplex_call_tool, mcplex_list_categories)
-async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+async fn handle_tools_call(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    headers: &HeaderMap,
+) -> JsonRpcResponse {
     let start = std::time::Instant::now();
 
     // Parse tool call params
@@ -489,6 +509,25 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
 
     let tool_name = params.name.clone();
 
+    if let Err(reason) = validate_tool_call_params(&params) {
+        warn!("🚫 Rejected invalid tool call '{}': {}", tool_name, reason);
+        state.metrics.record_event(EventType::Security {
+            kind: "invalid_tool_call".to_string(),
+            target: Some(tool_name.clone()),
+            detail: Some(reason.to_string()),
+        });
+        return JsonRpcResponse::error(
+            request.id.clone(),
+            error_codes::INVALID_PARAMS,
+            &format!("Invalid tool call parameters: {}", reason),
+        );
+    }
+
+    let trusted_role = headers
+        .get("x-mcplex-role")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     // ── Meta-tool interception ─────────────────────────
     // These are handled by the gateway itself, not forwarded upstream
     match tool_name.as_str() {
@@ -496,7 +535,7 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
             return handle_meta_find_tools(state, request, &params).await;
         }
         "mcplex_call_tool" => {
-            return handle_meta_call_tool(state, request, &params).await;
+            return handle_meta_call_tool(state, request, &params, trusted_role.clone()).await;
         }
         "mcplex_list_categories" => {
             return handle_meta_list_categories(state, request).await;
@@ -505,7 +544,7 @@ async fn handle_tools_call(state: &AppState, request: &JsonRpcRequest) -> JsonRp
     }
 
     // ── Normal tool dispatch ───────────────────────────
-    dispatch_real_tool(state, request, &params, start).await
+    dispatch_real_tool(state, request, &params, start, trusted_role).await
 }
 
 /// Meta-tool: mcplex_find_tools — search for tools by intent
@@ -608,6 +647,7 @@ async fn handle_meta_call_tool(
     state: &AppState,
     request: &JsonRpcRequest,
     params: &ToolCallParams,
+    trusted_role: Option<String>,
 ) -> JsonRpcResponse {
     let start = std::time::Instant::now();
 
@@ -642,7 +682,7 @@ async fn handle_meta_call_tool(
     info!("🔧 mcplex_call_tool: dispatching '{}'", real_tool_name);
 
     // Dispatch through the normal tool call pipeline (security, cache, audit)
-    dispatch_real_tool(state, request, &real_params, start).await
+    dispatch_real_tool(state, request, &real_params, start, trusted_role).await
 }
 
 /// Meta-tool: mcplex_list_categories — list server groups with tool counts
@@ -707,16 +747,19 @@ async fn dispatch_real_tool(
     request: &JsonRpcRequest,
     params: &ToolCallParams,
     start: std::time::Instant,
+    trusted_role: Option<String>,
 ) -> JsonRpcResponse {
     let tool_name = params.name.clone();
 
-    // Resolve role from request headers (via _mcplex_role param or default)
-    let role = request
-        .params
-        .as_ref()
-        .and_then(|p| p.get("_mcplex_role"))
-        .and_then(|r| r.as_str())
-        .map(|s| s.to_string());
+    // Trusted role from authenticated API key takes precedence.
+    let role = trusted_role.or_else(|| {
+        request
+            .params
+            .as_ref()
+            .and_then(|p| p.get("_mcplex_role"))
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string())
+    });
 
     // Security check (with role if available)
     let security = state.security.read().await;
@@ -725,6 +768,11 @@ async fn dispatch_real_tool(
             "🚫 Tool call blocked by security policy: {} (role: {:?})",
             tool_name, role
         );
+        state.metrics.record_event(EventType::Security {
+            kind: "blocked_tool".to_string(),
+            target: Some(tool_name.clone()),
+            detail: Some(format!("role={}", role.as_deref().unwrap_or("none"))),
+        });
         security.audit_blocked_call(&tool_name, "security_policy");
         return JsonRpcResponse::error(
             request.id.clone(),
@@ -920,7 +968,6 @@ async fn handle_prompts_get(state: &AppState, request: &JsonRpcRequest) -> JsonR
 // Authentication & Rate Limiting Middleware
 // ─────────────────────────────────────────────
 
-use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Instant;
 
@@ -963,7 +1010,9 @@ impl RateLimiter {
         }
 
         // Periodic cleanup: prune stale entries every 100 checks
-        let count = self.check_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let count = self
+            .check_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if count % 100 == 99 {
             self.cleanup_stale_entries();
         }
@@ -1006,9 +1055,7 @@ impl RateLimiter {
         if let Ok(mut buckets) = self.buckets.write() {
             let now = Instant::now();
             let before = buckets.len();
-            buckets.retain(|_, bucket| {
-                now.duration_since(bucket.last_refill) < STALE_THRESHOLD
-            });
+            buckets.retain(|_, bucket| now.duration_since(bucket.last_refill) < STALE_THRESHOLD);
             let removed = before - buckets.len();
             if removed > 0 {
                 tracing::debug!("🧹 Rate limiter: pruned {} stale client entries", removed);
@@ -1017,13 +1064,87 @@ impl RateLimiter {
     }
 }
 
+fn validate_tool_call_params(params: &ToolCallParams) -> Result<(), &'static str> {
+    let name = params.name.trim();
+    if name.is_empty() {
+        return Err("tool name cannot be empty");
+    }
+    if name.len() > 128 {
+        return Err("tool name exceeds 128 characters");
+    }
+    if !is_valid_tool_name(name) {
+        return Err("tool name contains invalid characters");
+    }
+
+    if let Some(args) = &params.arguments {
+        let payload_size = serde_json::to_vec(args).map(|v| v.len()).unwrap_or(0);
+        if payload_size > 65_536 {
+            return Err("tool arguments exceed 64KB");
+        }
+        if json_max_depth(args, 0) > 16 {
+            return Err("tool arguments exceed max nesting depth of 16");
+        }
+    }
+
+    Ok(())
+}
+
+fn is_valid_tool_name(name: &str) -> bool {
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.'))
+}
+
+fn json_max_depth(value: &serde_json::Value, depth: usize) -> usize {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|v| json_max_depth(v, depth + 1))
+            .max()
+            .unwrap_or(depth),
+        serde_json::Value::Object(map) => map
+            .values()
+            .map(|v| json_max_depth(v, depth + 1))
+            .max()
+            .unwrap_or(depth),
+        _ => depth,
+    }
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+
+    let mut diff: u8 = 0;
+    for (&x, &y) in a.as_bytes().iter().zip(b.as_bytes().iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn extract_api_key(request: &axum::extract::Request) -> Option<String> {
+    request
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
+        .or_else(|| {
+            request
+                .headers()
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+}
+
+/// Middleware state: (gateway API key, API-key→role map, rate limiter)
+type AuthState = (Option<String>, HashMap<String, String>, Arc<RateLimiter>);
+
 /// Combined auth + rate limit middleware
 async fn auth_and_rate_limit_middleware(
-    axum::extract::State((api_key, rate_limiter)): axum::extract::State<(
-        Option<String>,
-        Arc<RateLimiter>,
-    )>,
-    request: axum::extract::Request,
+    axum::extract::State((api_key, api_key_roles, rate_limiter)): axum::extract::State<AuthState>,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let path = request.uri().path().to_string();
@@ -1033,33 +1154,44 @@ async fn auth_and_rate_limit_middleware(
         return next.run(request).await;
     }
 
-    // Check API key if configured
-    if let Some(ref expected_key) = api_key {
-        let provided_key = request
-            .headers()
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .or_else(|| {
-                request
-                    .headers()
-                    .get("x-api-key")
-                    .and_then(|v| v.to_str().ok())
-            });
+    let auth_required = api_key.is_some() || !api_key_roles.is_empty();
+    let mut trusted_role: Option<String> = None;
 
-        match provided_key {
-            Some(key) if key == expected_key => {} // OK
-            _ => {
-                warn!(
-                    "🚫 Unauthorized request to {} — invalid or missing API key",
-                    path
-                );
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({
-                        "error": "Unauthorized — provide API key via Authorization: Bearer <key> or X-API-Key header"
-                    })),
-                ).into_response();
+    // Check API key(s) if configured
+    if auth_required {
+        let provided_key = extract_api_key(&request);
+        let mut authorized = false;
+
+        if let Some(ref key) = provided_key {
+            if let Some(role) = api_key_roles.get(key) {
+                authorized = true;
+                trusted_role = Some(role.clone());
+            }
+
+            if !authorized {
+                if let Some(ref expected_key) = api_key {
+                    authorized = constant_time_eq(key, expected_key);
+                }
+            }
+        }
+
+        if !authorized {
+            warn!(
+                "🚫 Unauthorized request to {} — invalid or missing API key",
+                path
+            );
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "Unauthorized — provide API key via Authorization: Bearer <key> or X-API-Key header"
+                })),
+            )
+                .into_response();
+        }
+
+        if let Some(role) = trusted_role {
+            if let Ok(value) = HeaderValue::from_str(&role) {
+                request.headers_mut().insert("x-mcplex-role", value);
             }
         }
     }
@@ -1084,4 +1216,78 @@ async fn auth_and_rate_limit_middleware(
     }
 
     next.run(request).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq("secret-key", "secret-key"));
+        assert!(!constant_time_eq("secret-key", "secret-kez"));
+        assert!(!constant_time_eq("short", "longer-key"));
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn test_validate_tool_call_params_ok() {
+        let params = ToolCallParams {
+            name: "github/create_issue".to_string(),
+            arguments: Some(serde_json::json!({"title": "hello"})),
+        };
+        assert!(validate_tool_call_params(&params).is_ok());
+    }
+
+    #[test]
+    fn test_validate_tool_call_params_rejects_bad_names() {
+        for bad in [
+            "",
+            "   ",
+            "tool;rm -rf",
+            "a".repeat(200).as_str(),
+            "tool\nname",
+        ] {
+            let params = ToolCallParams {
+                name: bad.to_string(),
+                arguments: None,
+            };
+            assert!(
+                validate_tool_call_params(&params).is_err(),
+                "expected rejection for {:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_tool_call_params_rejects_deep_nesting() {
+        let mut value = serde_json::json!(1);
+        for _ in 0..20 {
+            value = serde_json::json!({ "nested": value });
+        }
+        let params = ToolCallParams {
+            name: "tool".to_string(),
+            arguments: Some(value),
+        };
+        assert!(validate_tool_call_params(&params).is_err());
+    }
+
+    #[test]
+    fn test_validate_tool_call_params_rejects_oversized_args() {
+        let big = "x".repeat(70_000);
+        let params = ToolCallParams {
+            name: "tool".to_string(),
+            arguments: Some(serde_json::json!({ "blob": big })),
+        };
+        assert!(validate_tool_call_params(&params).is_err());
+    }
+
+    #[test]
+    fn test_is_valid_tool_name() {
+        assert!(is_valid_tool_name("github/create_issue"));
+        assert!(is_valid_tool_name("my-server.v2/tool_1"));
+        assert!(!is_valid_tool_name("tool name"));
+        assert!(!is_valid_tool_name("tool<script>"));
+    }
 }
