@@ -719,7 +719,17 @@ Contributions are welcome! Please:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🔧 Recent Changes (v0.5.0 — Security by Design)
+## 🔧 Recent Changes (v0.6.0 — Audit Hardening & Denial Telemetry)
+
+- **Audit Log Secret Redaction** — Values under sensitive keys (`password`, `token`, `api_key`, `secret`, `credential`, etc.) are recursively replaced with `[REDACTED]` before hitting disk; credentials never persist in `audit.jsonl`.
+- **Spoof-Proof Rate Limiting** — Client identity now comes from the real socket address (`ConnectInfo`), falling back to the first `X-Forwarded-For` hop only behind proxies; header spoofing no longer evades limits.
+- **Auth/Rate-Limit Denial Telemetry** — `auth_denied` and `rate_limited` security events now recorded in metrics and visible in the dashboard event stream.
+- **Resource/Prompt Audit Coverage** — `resources/read` and `prompts/get` are now written to the audit trail (`resource_read` / `prompt_get` events); resource URIs capped at 2048 chars.
+- **Panic Fix** — `tools/list` in meta-tool mode no longer panics when fewer real tools than meta-tools are connected (saturating arithmetic).
+- **2 new audit redaction tests** (31 total); live smoke test verified end-to-end.
+
+<details>
+<summary>Previous (v0.5.0 — Security by Design)</summary>
 
 - **Constant-Time API Key Verification** — Key comparison is no longer vulnerable to timing side-channels.
 - **Trusted Role Binding** — Multi-tenant API keys now bind their RBAC role at the middleware layer (`X-MCPlex-Role` injected server-side). Clients can no longer self-assert a role via `_mcplex_role` when authenticated.
@@ -728,6 +738,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Security Telemetry** — New `security_events`, `blocked_tool_calls`, and `rejected_tool_calls` counters, surfaced as dashboard cards plus a live security-posture pill (RBAC/Audit status) in the header.
 - **VS Code / GitHub Copilot Integration** — Documented `.vscode/mcp.json` setup with a ready-to-copy template ([examples/vscode-mcp.json](examples/vscode-mcp.json)) for token-saving meta-tool routing inside IDE sessions.
 - **Dynamic Version Banner** — CLI banner and dashboard header now display the crate version automatically.
+
+</details>
 
 <details>
 <summary>Previous (v0.3.1 — Hardening)</summary>
