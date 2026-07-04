@@ -220,8 +220,8 @@ impl Multiplexer {
                 all_resources,
                 all_prompts,
                 death_tx,
-                // v0.4.0: Shared HTTP client for connection pooling
-                http_client: reqwest::Client::new(),
+                // v0.4.0/v0.5.0: Shared pooled HTTP client (timeouts + keep-alive)
+                http_client: shared_http_client().clone(),
             },
             death_rx,
         ))
@@ -317,7 +317,13 @@ impl Multiplexer {
         debug!("📖 Reading resource '{}' from '{}'", uri, server_name);
 
         if let Some(ref url) = server.config.url {
-            rpc_http(&self.http_client, url, "resources/read", serde_json::json!({ "uri": uri })).await
+            rpc_http(
+                &self.http_client,
+                url,
+                "resources/read",
+                serde_json::json!({ "uri": uri }),
+            )
+            .await
         } else if let Some(conn) = self.stdio_connections.get(&server_name) {
             conn.send_request("resources/read", serde_json::json!({ "uri": uri }))
                 .await
@@ -649,7 +655,11 @@ async fn rpc_http(
 
 /// Call a tool via HTTP transport
 /// v0.4.0: Now accepts shared client for connection pooling
-async fn call_tool_http(client: &reqwest::Client, url: &str, params: &ToolCallParams) -> anyhow::Result<serde_json::Value> {
+async fn call_tool_http(
+    client: &reqwest::Client,
+    url: &str,
+    params: &ToolCallParams,
+) -> anyhow::Result<serde_json::Value> {
     rpc_http(
         client,
         url,
@@ -701,9 +711,8 @@ async fn discover_http_server_inner(
     Vec<ResourceDefinition>,
     Vec<PromptDefinition>,
 )> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+    // v0.5.0: Use the shared pooled client (30s request / 10s connect timeouts)
+    let client = shared_http_client();
 
     // Initialize
     let init_response: serde_json::Value = client
@@ -747,7 +756,7 @@ async fn discover_http_server_inner(
     let has_prompts = capabilities.get("prompts").is_some();
 
     let tools = if has_tools {
-        paginated_list_http(&client, url, "tools/list", "tools", server_name)
+        paginated_list_http(client, url, "tools/list", "tools", server_name)
             .await
             .and_then(|v| serde_json::from_value::<Vec<ToolDefinition>>(v).ok())
             .unwrap_or_default()
@@ -756,7 +765,7 @@ async fn discover_http_server_inner(
     };
 
     let resources = if has_resources {
-        paginated_list_http(&client, url, "resources/list", "resources", server_name)
+        paginated_list_http(client, url, "resources/list", "resources", server_name)
             .await
             .and_then(|v| serde_json::from_value::<Vec<ResourceDefinition>>(v).ok())
             .unwrap_or_default()
@@ -765,7 +774,7 @@ async fn discover_http_server_inner(
     };
 
     let prompts = if has_prompts {
-        paginated_list_http(&client, url, "prompts/list", "prompts", server_name)
+        paginated_list_http(client, url, "prompts/list", "prompts", server_name)
             .await
             .and_then(|v| serde_json::from_value::<Vec<PromptDefinition>>(v).ok())
             .unwrap_or_default()

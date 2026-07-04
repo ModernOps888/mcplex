@@ -38,6 +38,11 @@ pub enum EventType {
         server_name: String,
         tools_restored: usize,
     },
+    Security {
+        kind: String,
+        target: Option<String>,
+        detail: Option<String>,
+    },
 }
 
 /// A single metric event with timestamp
@@ -132,6 +137,9 @@ pub struct GlobalCounters {
     pub total_errors: u64,
     pub total_tokens_saved: u64,
     pub total_routing_queries: u64,
+    pub security_events: u64,
+    pub blocked_tool_calls: u64,
+    pub rejected_tool_calls: u64,
     pub started_at_epoch: u64,
 }
 
@@ -288,6 +296,34 @@ impl MetricsCollector {
                     "tools_restored": tools_restored,
                 })),
             },
+            EventType::Security {
+                kind,
+                target,
+                detail,
+            } => {
+                if let Ok(mut counters) = self.counters.write() {
+                    counters.security_events += 1;
+                    if kind == "blocked_tool" {
+                        counters.blocked_tool_calls += 1;
+                    }
+                    if kind == "invalid_tool_call" {
+                        counters.rejected_tool_calls += 1;
+                    }
+                }
+                MetricEvent {
+                    timestamp: now,
+                    event_type: "security".to_string(),
+                    tool_name: target.clone(),
+                    server_name: None,
+                    duration_ms: None,
+                    success: Some(false),
+                    tokens_saved: None,
+                    details: Some(serde_json::json!({
+                        "kind": kind,
+                        "detail": detail,
+                    })),
+                }
+            }
         };
 
         if let Ok(mut events) = self.events.write() {
@@ -360,6 +396,9 @@ impl MetricsCollector {
                 "total_errors": counters.total_errors,
                 "total_tokens_saved": counters.total_tokens_saved,
                 "total_routing_queries": counters.total_routing_queries,
+                "security_events": counters.security_events,
+                "blocked_tool_calls": counters.blocked_tool_calls,
+                "rejected_tool_calls": counters.rejected_tool_calls,
                 "uptime": uptime,
             },
             "tools": tools,

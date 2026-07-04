@@ -1,5 +1,10 @@
 // MCPlex — MCP Protocol Module
 // Core MCP JSON-RPC types and message handling
+//
+// Some request/response types below are part of the complete MCP wire
+// schema and are kept for protocol completeness even when the gateway
+// does not construct them directly.
+#![allow(dead_code)]
 
 pub mod cache;
 pub mod multiplexer;

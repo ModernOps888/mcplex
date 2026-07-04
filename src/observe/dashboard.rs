@@ -43,7 +43,7 @@ impl DashboardServer {
 
 /// Serve the dashboard HTML
 async fn serve_dashboard() -> impl IntoResponse {
-    Html(DASHBOARD_HTML)
+    Html(DASHBOARD_HTML.replace("__MCPLEX_VERSION__", env!("CARGO_PKG_VERSION")))
 }
 
 /// API: Get all metrics
@@ -567,10 +567,13 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         <div class="header-left">
             <div class="logo">⚡</div>
             <h1><span>MCPlex</span></h1>
-            <span class="version">v0.3.0</span>
+            <span class="version">v__MCPLEX_VERSION__</span>
         </div>
         <div class="header-right">
             <span class="refresh-hint" id="last-update">—</span>
+            <div class="status-pill" id="security-pill" title="Security posture">
+                🛡️ <span id="security-status">…</span>
+            </div>
             <div class="status-pill">
                 <div class="status-dot"></div>
                 Online · <span id="uptime">0s</span>
@@ -685,6 +688,18 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
                     <div class="value">${(c.total_errors || 0).toLocaleString()}</div>
                     <div class="subtext">${(c.total_errors || 0) === 0 ? 'all clear' : 'check event log'}</div>
                 </div>
+                <div class="metric-card ${(c.blocked_tool_calls || 0) > 0 ? 'error' : ''}">
+                    <div class="icon">🛡️</div>
+                    <div class="label">Blocked Calls</div>
+                    <div class="value">${(c.blocked_tool_calls || 0).toLocaleString()}</div>
+                    <div class="subtext">RBAC and allowlist denies</div>
+                </div>
+                <div class="metric-card ${(c.rejected_tool_calls || 0) > 0 ? 'error' : ''}">
+                    <div class="icon">🧪</div>
+                    <div class="label">Rejected Inputs</div>
+                    <div class="value">${(c.rejected_tool_calls || 0).toLocaleString()}</div>
+                    <div class="subtext">invalid tool payloads stopped</div>
+                </div>
             `;
             prevCounters = { req: c.total_requests, tc: c.total_tool_calls };
         }
@@ -752,6 +767,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
                 tool_call:     { color: 'var(--accent)',         icon: '🔧' },
                 routing:       { color: 'var(--success)',        icon: '🧠' },
                 request:       { color: 'var(--text-secondary)', icon: '📥' },
+                security:      { color: 'var(--error)',          icon: '🛡️' },
                 tool_blocked:  { color: 'var(--error)',          icon: '🚫' },
                 server_disconnect: { color: 'var(--warning)',    icon: '⚠️' },
                 server_reconnect:  { color: 'var(--success)',    icon: '🔄' },
@@ -777,7 +793,21 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             return n.toString();
         }
 
+        async function fetchSecurityPosture() {
+            try {
+                const cfg = await fetch('/api/config').then(r => r.json());
+                const sec = cfg.security || {};
+                const parts = [];
+                parts.push(sec.rbac_enabled ? 'RBAC ✓' : 'RBAC ✗');
+                parts.push(sec.audit_enabled ? 'Audit ✓' : 'Audit ✗');
+                document.getElementById('security-status').textContent = parts.join(' · ');
+            } catch (e) {
+                document.getElementById('security-status').textContent = 'unknown';
+            }
+        }
+
         fetchData();
+        fetchSecurityPosture();
         setInterval(fetchData, 3000);
     </script>
 </body>

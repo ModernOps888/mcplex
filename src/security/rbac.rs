@@ -46,6 +46,7 @@ impl RbacEngine {
     }
 
     /// List all roles
+    #[allow(dead_code)]
     pub fn list_roles(&self) -> Vec<String> {
         self.roles.keys().cloned().collect()
     }

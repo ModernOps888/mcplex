@@ -240,6 +240,29 @@ Add a `.mcp.json` to your project root (Claude Code auto-discovers it):
 
 For Claude Desktop, add the same config to `claude_desktop_config.json`.
 
+### VS Code / GitHub Copilot (agent mode)
+
+VS Code supports MCP servers natively. Add a `.vscode/mcp.json` to your workspace (or run **MCP: Add Server** from the Command Palette) pointing at the MCPlex bridge:
+
+```json
+{
+  "servers": {
+    "mcplex": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/mcplex/bridge.mjs"],
+      "env": {
+        "MCPLEX_GATEWAY": "http://127.0.0.1:3100/mcp"
+      }
+    }
+  }
+}
+```
+
+A ready-to-copy template lives at [examples/vscode-mcp.json](examples/vscode-mcp.json).
+
+With the default **meta-tool mode**, Copilot's agent sees just 3 gateway tools (~200 tokens) instead of every tool definition from every connected server — the same 70–90% context savings apply inside your IDE session. Tool discovery happens on demand via `mcplex_find_tools`, and every call is still routed through RBAC, allowlists, audit logging, and the response cache.
+
 ### Cursor / Windsurf / HTTP-capable MCP Clients
 
 Clients that support streamable HTTP can connect directly:
@@ -289,11 +312,12 @@ MCPlex acts as a **man-in-the-middle proxy** for all MCP traffic:
 ```
 Your Agent ──POST /mcp──→ MCPlex Gateway ──→ Upstream MCP Server
                               │                (persistent stdio or HTTP)
-                              ├─ ✅ Auth check (API key)
+                              ├─ ✅ Auth check (constant-time API key compare)
                               ├─ 🚦 Rate limit check
-                              ├─ 🔒 RBAC + allowlist/blocklist
+                              ├─ 🧪 Input validation (name charset, 64KB / depth-16 args cap)
+                              ├─ 🔒 RBAC + allowlist/blocklist (role bound to API key)
                               ├─ 📝 Audit log (every call)
-                              └─ 📊 Metrics (latency, tokens)
+                              └─ 📊 Metrics (latency, tokens, security events)
 ```
 
 Every `tools/call` goes through the security engine and is logged. Every `tools/list` goes through the semantic router. There's no way to bypass it — if your agent uses MCPlex as its MCP endpoint, **all calls are intercepted, checked, and logged**.
@@ -695,12 +719,25 @@ Contributions are welcome! Please:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🔧 Recent Changes (v0.3.1 — Hardening)
+## 🔧 Recent Changes (v0.5.0 — Security by Design)
+
+- **Constant-Time API Key Verification** — Key comparison is no longer vulnerable to timing side-channels.
+- **Trusted Role Binding** — Multi-tenant API keys now bind their RBAC role at the middleware layer (`X-MCPlex-Role` injected server-side). Clients can no longer self-assert a role via `_mcplex_role` when authenticated.
+- **Tool Call Input Validation** — Tool names are restricted to a safe charset (max 128 chars); arguments are capped at 64KB with a max JSON nesting depth of 16. Malformed calls are rejected before touching upstream servers.
+- **Request Body Limit** — Gateway rejects request bodies over 1MB.
+- **Security Telemetry** — New `security_events`, `blocked_tool_calls`, and `rejected_tool_calls` counters, surfaced as dashboard cards plus a live security-posture pill (RBAC/Audit status) in the header.
+- **VS Code / GitHub Copilot Integration** — Documented `.vscode/mcp.json` setup with a ready-to-copy template ([examples/vscode-mcp.json](examples/vscode-mcp.json)) for token-saving meta-tool routing inside IDE sessions.
+- **Dynamic Version Banner** — CLI banner and dashboard header now display the crate version automatically.
+
+<details>
+<summary>Previous (v0.3.1 — Hardening)</summary>
 
 - **Shared HTTP Client** — Replaced per-call `reqwest::Client::new()` with a pooled static client. Enables HTTP/2 connection reuse, TLS session resumption, and 30s request timeouts.
 - **Circuit Breaker Config** — `circuit_breaker_max_crashes`, `circuit_breaker_window_secs`, and `request_timeout_secs` are now configurable in `[security]` (previously hardcoded).
 - **Env-Var Expansion Fix** — `${ENV_VAR}` expansion now uses a single-pass cursor instead of a `while`-loop, preventing infinite loops if a resolved value itself contains `${`.
 - **Rate Limiter Memory Fix** — Stale client IP entries are now pruned every 100 checks (entries idle >5 min), preventing unbounded HashMap growth.
+
+</details>
 
 ---
 

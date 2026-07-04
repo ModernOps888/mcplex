@@ -5,6 +5,26 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-07-04
+
+### 🔒 Security by Design
+- **Constant-time API key comparison** — Gateway key verification no longer leaks timing information
+- **Trusted role binding for multi-tenant keys** — Authenticated API keys resolve to their configured RBAC role at the middleware layer; the server-side `X-MCPlex-Role` header now takes precedence over the client-supplied `_mcplex_role` param, closing a role self-assertion hole
+- **Tool call input validation** — Tool names restricted to `[A-Za-z0-9/_.-]` (max 128 chars); arguments capped at 64KB with max JSON nesting depth of 16; invalid calls rejected with `-32602` before reaching upstream servers
+- **1MB request body limit** on the gateway endpoint (defense against memory-exhaustion payloads)
+- **Security event telemetry** — New `EventType::Security` with `security_events`, `blocked_tool_calls`, and `rejected_tool_calls` global counters
+- **RBAC enforcement through meta-tools** — `mcplex_call_tool` proxy dispatch now carries the authenticated role end-to-end
+
+### ✨ Features & GUI
+- **Dashboard security cards** — "Blocked Calls" and "Rejected Inputs" metric cards with error highlighting
+- **Security-posture pill** — Live RBAC/Audit status indicator in the dashboard header
+- **Security events in the live event stream** — 🛡️ styled entries for blocks and rejections
+- **Dynamic version display** — CLI banner and dashboard header render the crate version automatically (no more stale hardcoded versions)
+- **VS Code / GitHub Copilot integration** — Documented `.vscode/mcp.json` setup plus a ready-to-copy template at `examples/vscode-mcp.json`, bringing meta-tool token savings into IDE agent sessions
+
+### 🧪 Testing
+- 6 new unit tests covering constant-time comparison, tool-name validation, argument size/depth limits
+
 ## [0.4.0] — 2026-06-20
 
 ### 🔴 Critical Fixes

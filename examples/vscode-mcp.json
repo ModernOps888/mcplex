@@ -1,0 +1,13 @@
+{
+  "$comment": "MCPlex + VS Code — copy this file to .vscode/mcp.json in your workspace (or add via 'MCP: Add Server' in the Command Palette). GitHub Copilot agent mode will then discover tools through the MCPlex gateway, with meta-tool routing keeping token usage minimal.",
+  "servers": {
+    "mcplex": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/bridge.mjs"],
+      "env": {
+        "MCPLEX_GATEWAY": "http://127.0.0.1:3100/mcp"
+      }
+    }
+  }
+}
