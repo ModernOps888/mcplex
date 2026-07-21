@@ -9,8 +9,9 @@ use axum::{
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tracing::info;
+use tracing::{info, warn};
 
+use crate::protocol::transport::{constant_time_eq, extract_api_key};
 use crate::AppState;
 // v0.4.0: Import export module to wire up previously-dead Prometheus endpoint
 use crate::observe::export;
@@ -21,6 +22,15 @@ pub struct DashboardServer;
 impl DashboardServer {
     /// Start the dashboard HTTP server
     pub async fn start(addr: &str, state: Arc<AppState>) -> anyhow::Result<()> {
+        let dashboard_api_key = state.config.read().await.gateway.dashboard_api_key.clone();
+
+        if dashboard_api_key.is_none() {
+            warn!(
+                "📊 Dashboard has no api_key configured — it is unauthenticated. \
+                 Bind it to localhost only, or set gateway.dashboard_api_key."
+            );
+        }
+
         let app = Router::new()
             .route("/", get(serve_dashboard))
             .route("/api/metrics", get(api_metrics))
@@ -30,6 +40,10 @@ impl DashboardServer {
             .route("/api/config", get(api_config))
             // v0.4.0: Prometheus-compatible metrics endpoint (was defined but never mounted)
             .route("/api/prometheus", get(api_prometheus))
+            .layer(axum::middleware::from_fn_with_state(
+                dashboard_api_key,
+                dashboard_auth_middleware,
+            ))
             .layer(CorsLayer::permissive())
             .with_state(state);
 
@@ -39,6 +53,35 @@ impl DashboardServer {
 
         Ok(())
     }
+}
+
+/// Gate every dashboard route behind `gateway.dashboard_api_key` when configured.
+/// No-op (all requests pass through) when the key is unset, matching the
+/// pre-existing default of an open dashboard for local/dev use.
+async fn dashboard_auth_middleware(
+    State(expected_key): State<Option<String>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(expected_key) = expected_key else {
+        return next.run(request).await;
+    };
+
+    let authorized = extract_api_key(&request)
+        .map(|provided| constant_time_eq(&provided, &expected_key))
+        .unwrap_or(false);
+
+    if !authorized {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "Unauthorized — provide dashboard API key via Authorization: Bearer <key> or X-API-Key header"
+            })),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
 }
 
 /// Serve the dashboard HTML

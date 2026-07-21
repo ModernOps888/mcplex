@@ -225,14 +225,19 @@ fn now_iso8601() -> String {
 const SENSITIVE_KEY_PARTS: &[&str] = &[
     "password",
     "passwd",
+    "pwd",
     "secret",
     "token",
     "api_key",
     "apikey",
     "authorization",
+    "auth",
     "credential",
     "private_key",
     "access_key",
+    "cookie",
+    "session",
+    "bearer",
 ];
 
 /// Recursively redact values whose keys look sensitive.

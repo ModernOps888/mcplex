@@ -81,3 +81,43 @@ impl SecurityEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::RoleConfig;
+
+    fn rbac_config_with_admin_role() -> AppConfig {
+        let mut config: AppConfig =
+            toml::from_str("[gateway]\n").expect("minimal config with defaults must parse");
+        config.security.enable_rbac = true;
+        config.roles.insert(
+            "admin".to_string(),
+            RoleConfig {
+                allowed_tools: vec!["*".to_string()],
+                blocked_tools: vec![],
+            },
+        );
+        config
+    }
+
+    /// Regression test: RBAC must deny when no server-verified role is
+    /// established, even though an "admin" (allow-all) role exists in
+    /// config. This guards the fix that removed the client-controlled
+    /// `_mcplex_role` params fallback in `dispatch_real_tool` — a client
+    /// could previously self-assert `role: "admin"` and bypass RBAC
+    /// whenever no api_key/api_keys were configured.
+    #[test]
+    fn rbac_denies_when_no_trusted_role_established() {
+        let config = rbac_config_with_admin_role();
+        let engine = SecurityEngine::new(&config);
+        assert!(!engine.is_tool_allowed("some_tool", None));
+    }
+
+    #[test]
+    fn rbac_allows_with_a_trusted_role() {
+        let config = rbac_config_with_admin_role();
+        let engine = SecurityEngine::new(&config);
+        assert!(engine.is_tool_allowed("some_tool", Some("admin")));
+    }
+}

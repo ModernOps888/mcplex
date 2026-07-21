@@ -593,7 +593,32 @@ async fn dead_server_monitor(state: Arc<AppState>, mut death_rx: DeathReceiver) 
                     attempt, MAX_RESPAWN_ATTEMPTS, name_for_respawn, delay
                 );
 
-                match protocol::stdio::StdioConnection::connect(&config, death_tx.clone()).await {
+                let request_timeout = std::time::Duration::from_secs(
+                    state_for_respawn
+                        .config
+                        .read()
+                        .await
+                        .security
+                        .request_timeout_secs,
+                );
+                let handshake_timeout = std::time::Duration::from_secs(
+                    config.handshake_timeout_secs.unwrap_or(
+                        state_for_respawn
+                            .config
+                            .read()
+                            .await
+                            .security
+                            .default_handshake_timeout_secs,
+                    ),
+                );
+                match protocol::stdio::StdioConnection::connect(
+                    &config,
+                    death_tx.clone(),
+                    request_timeout,
+                    handshake_timeout,
+                )
+                .await
+                {
                     Ok((conn, capabilities)) => {
                         let tools_restored = {
                             let mut mux = state_for_respawn.multiplexer.write().await;

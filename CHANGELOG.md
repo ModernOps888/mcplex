@@ -5,6 +5,23 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-07-21
+
+### 🔒 Security
+- **RBAC self-assertion bypass (HIGH)** — `dispatch_real_tool` fell back to a client-supplied `_mcplex_role` request param whenever no server-verified role was established (i.e. no `api_key`/`api_keys` configured). Any caller could self-assert `role: "admin"` and bypass RBAC entirely. Role now comes exclusively from the auth middleware's server-verified `trusted_role` — the client-controlled fallback has been removed.
+- **Dashboard authentication** — `/api/*` dashboard routes had no authentication, only permissive CORS. Added optional `gateway.dashboard_api_key`; when set, all dashboard API routes require a matching `Authorization: Bearer` or `X-API-Key` header (constant-time compared). Unset by default for backward compatibility, with a startup warning recommending a localhost-only bind in that case.
+- **Cross-tenant cache leakage** — the tool response cache was keyed only by tool name + arguments, so in a multi-key deployment one tenant's cached response could be served to another. Cache entries are now partitioned by caller role.
+- **Empty-string secrets from unset env vars** — `${ENV_VAR}` expansion silently produced an empty string for unset variables, which could make `gateway.api_key`/`dashboard_api_key`/`api_keys` resolve to `""` and turn "auth required" into a no-op. `validate_config` now rejects empty-string keys/roles at startup instead of silently bypassing auth.
+- **Audit log redaction list expanded** — added `pwd`, `auth`, `cookie`, `session`, `bearer` to the sensitive-key redaction list used before writing audit log entries.
+- **RBAC-without-auth warning** — startup now warns when `security.enable_rbac = true` but no `api_key`/`api_keys` are configured, since every tool call will correctly deny-by-default in that configuration (previously silent).
+
+### ✨ Features
+- **Configurable stdio handshake timeout** (fixes [#20](https://github.com/ModernOps888/mcplex/issues/20)) — the initial stdio MCP handshake (`initialize`) previously used a hardcoded 30s timeout shared with steady-state tool calls, causing spurious failures for servers with a slow cold start (e.g. `npx` resolving/downloading a package on first run). The handshake timeout is now independently configurable via `security.default_handshake_timeout_secs` (global default, 30s) and `servers[].handshake_timeout_secs` (per-server override), fully decoupled from `security.request_timeout_secs`, which now applies only to steady-state requests once connected.
+- **`0 = no timeout` is now implemented** for both `request_timeout_secs` and `default_handshake_timeout_secs` — previously documented but never actually honored anywhere in the code; a `0` value now waits indefinitely instead of timing out immediately.
+
+### 🧪 Testing
+- 38 tests passing (up from 32) — new regression tests for the RBAC self-assertion fix, role-partitioned cache, and handshake-timeout config parsing/defaults.
+
 ## [0.7.0] — 2026-07-21
 
 ### 🤖 Model Ecosystem Refresh (July 2026)
@@ -144,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI with `--config`, `--verbose`, `--listen`, `--dashboard`, and `--check` options
 - MIT licensed
 
+[0.7.1]: https://github.com/ModernOps888/mcplex/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ModernOps888/mcplex/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ModernOps888/mcplex/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ModernOps888/mcplex/compare/v0.4.0...v0.5.0

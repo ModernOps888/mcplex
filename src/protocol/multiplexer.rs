@@ -88,7 +88,21 @@ impl Multiplexer {
                 discover_http_server(server_config).await
             } else if server_config.command.is_some() {
                 // ── Stdio transport (persistent connection) ────
-                discover_stdio_server(server_config, &mut stdio_connections, death_tx.clone()).await
+                let request_timeout =
+                    std::time::Duration::from_secs(config.security.request_timeout_secs);
+                let handshake_timeout = std::time::Duration::from_secs(
+                    server_config
+                        .handshake_timeout_secs
+                        .unwrap_or(config.security.default_handshake_timeout_secs),
+                );
+                discover_stdio_server(
+                    server_config,
+                    &mut stdio_connections,
+                    death_tx.clone(),
+                    request_timeout,
+                    handshake_timeout,
+                )
+                .await
             } else {
                 warn!(
                     "Server '{}' has neither 'url' nor 'command' configured",
@@ -855,13 +869,15 @@ async fn discover_stdio_server(
     config: &ServerConfig,
     stdio_connections: &mut HashMap<String, StdioConnection>,
     death_tx: DeathSender,
+    request_timeout: std::time::Duration,
+    handshake_timeout: std::time::Duration,
 ) -> (
     Vec<ToolDefinition>,
     Vec<ResourceDefinition>,
     Vec<PromptDefinition>,
     bool,
 ) {
-    match StdioConnection::connect(config, death_tx).await {
+    match StdioConnection::connect(config, death_tx, request_timeout, handshake_timeout).await {
         Ok((conn, capabilities)) => {
             let has_tools = capabilities.get("tools").is_some();
             let has_resources = capabilities.get("resources").is_some();

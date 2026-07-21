@@ -32,6 +32,7 @@ pub struct StdioConnection {
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<PendingResult>>>>,
     next_id: AtomicI64,
     server_name: String,
+    request_timeout: Duration,
     _reader_handle: tokio::task::JoinHandle<()>,
     _child_handle: tokio::task::JoinHandle<()>,
 }
@@ -45,9 +46,17 @@ impl StdioConnection {
     /// On drop, the background tasks are detached and the child is reaped.
     ///
     /// `death_tx` is used to notify the dead-server monitor when this child exits.
+    /// `request_timeout` bounds how long `send_request` waits for a correlated
+    /// response before giving up (wired to `security.request_timeout_secs`).
+    /// `handshake_timeout` bounds only the initial `initialize` call, and may
+    /// be longer than `request_timeout` to tolerate slow cold starts (e.g.
+    /// `npx` resolving/downloading a package on first run) without loosening
+    /// the timeout used for every steady-state tool call afterward.
     pub async fn connect(
         config: &ServerConfig,
         death_tx: DeathSender,
+        request_timeout: Duration,
+        handshake_timeout: Duration,
     ) -> anyhow::Result<(Self, serde_json::Value)> {
         let command = config
             .command
@@ -141,13 +150,17 @@ impl StdioConnection {
             pending,
             next_id: AtomicI64::new(10), // 1-9 reserved for handshake
             server_name,
+            request_timeout,
             _reader_handle,
             _child_handle,
         };
 
         // ── MCP Handshake ──────────────────────────────────
+        // Uses `handshake_timeout` rather than the connection's steady-state
+        // `request_timeout` — a slow cold start here shouldn't require
+        // loosening the timeout applied to every later tool call.
         let init_result = conn
-            .send_request(
+            .send_request_with_timeout(
                 "initialize",
                 serde_json::json!({
                     "protocolVersion": "2025-11-25",  // v0.4.0: Updated from 2025-03-26
@@ -157,6 +170,7 @@ impl StdioConnection {
                         "version": env!("CARGO_PKG_VERSION"),
                     }
                 }),
+                handshake_timeout,
             )
             .await
             .map_err(|e| {
@@ -180,7 +194,8 @@ impl StdioConnection {
         Ok((conn, capabilities))
     }
 
-    /// Send a JSON-RPC request and wait for the correlated response.
+    /// Send a JSON-RPC request and wait for the correlated response, using
+    /// the connection's steady-state `request_timeout`.
     ///
     /// Returns the `result` field on success, or an error if the upstream
     /// returns a JSON-RPC error, the request times out, or the child dies.
@@ -188,6 +203,20 @@ impl StdioConnection {
         &self,
         method: &str,
         params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send_request_with_timeout(method, params, self.request_timeout)
+            .await
+    }
+
+    /// Same as `send_request`, but with an explicit timeout override — used
+    /// for the initial handshake, which may need a longer (or shorter)
+    /// timeout than steady-state calls (see `handshake_timeout_secs`).
+    /// A zero-duration timeout means "wait indefinitely".
+    async fn send_request_with_timeout(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
     ) -> anyhow::Result<serde_json::Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
@@ -233,24 +262,35 @@ impl StdioConnection {
 
         debug!("📤 [{}] → {} (id={})", self.server_name, method, id);
 
-        // Wait for response with timeout
-        let result = tokio::time::timeout(Duration::from_secs(30), rx)
-            .await
-            .map_err(|_| {
-                self.remove_pending(id);
-                anyhow::anyhow!(
-                    "Request to '{}' timed out after 30s (method={}, id={})",
-                    self.server_name,
-                    method,
-                    id
-                )
-            })?
-            .map_err(|_| {
+        // Wait for response — 0 duration means "no timeout, wait indefinitely"
+        let recv_result = if timeout.is_zero() {
+            rx.await.map_err(|_| {
                 anyhow::anyhow!(
                     "Response channel for '{}' dropped (server may have died)",
                     self.server_name
                 )
-            })?;
+            })
+        } else {
+            tokio::time::timeout(timeout, rx)
+                .await
+                .map_err(|_| {
+                    self.remove_pending(id);
+                    anyhow::anyhow!(
+                        "Request to '{}' timed out after {}s (method={}, id={})",
+                        self.server_name,
+                        timeout.as_secs(),
+                        method,
+                        id
+                    )
+                })?
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "Response channel for '{}' dropped (server may have died)",
+                        self.server_name
+                    )
+                })
+        };
+        let result = recv_result?;
 
         match result {
             Ok(value) => {

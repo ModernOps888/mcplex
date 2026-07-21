@@ -89,6 +89,7 @@ mod tests {
             blocked_tools: vec!["drop_*".to_string(), "delete_*".to_string()],
             allowed_tools: vec![],
             enabled: true,
+            handshake_timeout_secs: None,
         }];
 
         let engine = AllowlistEngine::new(&servers);
@@ -112,6 +113,7 @@ mod tests {
             blocked_tools: vec![],
             allowed_tools: vec!["list_*".to_string(), "get_*".to_string()],
             enabled: true,
+            handshake_timeout_secs: None,
         }];
 
         let engine = AllowlistEngine::new(&servers);
