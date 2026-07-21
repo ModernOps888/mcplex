@@ -5,6 +5,29 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-07-21
+
+### 🤖 Model Ecosystem Refresh (July 2026)
+- **Compatible Models panel** in the built-in dashboard — colour-coded provider badges listing all 9 active frontier models: GPT-5.6 Sol/Terra/Luna, Claude Fable 5/Mythos 5/Sonnet 5, Gemini 3.5 Flash/3.1 Pro, Grok 4.5
+- **Ecosystem footer** in the dashboard — clickable links to AgentLens, The Forge, and GitHub; displays current MCP protocol version (2025-11-25)
+
+### ✨ Features
+- **Expanded server examples** in `mcplex.toml` and `examples/` — added `memory`, `fetch` (uvx), `brave-search`, `postgres`, `sequential-thinking`, and `forge` (The Forge MCP) server blocks covering the most widely used 2026 MCP servers
+- **The Forge integration docs** — new README section with example config for connecting The Forge multi-model arena as an MCP server; Forge tool table (`forge_run_arena`, `forge_evolve`, `forge_research`, `forge_benchmark`)
+- **Compatible AI Models table** in README — full July 2026 model matrix with provider, MCP client, and recommended use case
+
+### 🐛 Fixed
+- **Python example protocol version** — corrected stale `2025-03-26` → `2025-11-25` in the README custom agent snippet
+- **CHANGELOG version links** — added missing `[0.4.0]`, `[0.5.0]`, `[0.6.0]` GitHub compare links (previously only went back to 0.3.0)
+
+### 📝 Documentation
+- `examples/production.toml` — switched to `semantic` routing (recommended for 10+ servers); added 6 new server blocks
+- `examples/dev-team.toml` — switched to `semantic` routing; added `memory`, `fetch`, `thinking` servers; expanded developer role allowlist
+- `mcplex.toml` — models reference comment block documenting July 2026 frontier models with cost-tier annotations
+
+### 🧪 Testing
+- 31 tests passing (unchanged — no Rust source changes; all changes are docs, config, and embedded HTML)
+
 ## [0.6.0] — 2026-07-04
 
 ### 🔒 Security
@@ -121,6 +144,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI with `--config`, `--verbose`, `--listen`, `--dashboard`, and `--check` options
 - MIT licensed
 
+[0.7.0]: https://github.com/ModernOps888/mcplex/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ModernOps888/mcplex/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/ModernOps888/mcplex/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/ModernOps888/mcplex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ModernOps888/mcplex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ModernOps888/mcplex/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ModernOps888/mcplex/releases/tag/v0.1.0

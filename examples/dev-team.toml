@@ -9,7 +9,7 @@ hot_reload = true
 name = "dev-team-gateway"
 
 [router]
-strategy = "keyword"
+strategy = "semantic"      # semantic recommended when running 5+ servers
 top_k = 5
 similarity_threshold = 0.1
 
@@ -34,16 +34,35 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/dev/projects"]
 allowed_roles = ["developer", "admin"]
 
 [[servers]]
+name = "memory"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "fetch"
+command = "uvx"
+args = ["mcp-server-fetch"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "thinking"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
 name = "slack"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-slack"]
 env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
 allowed_roles = ["admin"]
 
+
 # ── Roles ──
 
 [roles.developer]
-allowed_tools = ["github/*", "filesystem/*"]
+allowed_tools = ["github/*", "filesystem/*", "memory/*", "fetch/*", "thinking/*"]
 
 [roles.admin]
 allowed_tools = ["*"]

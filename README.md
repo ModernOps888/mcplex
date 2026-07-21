@@ -288,7 +288,7 @@ HEADERS = {"Authorization": "Bearer YOUR_API_KEY"}  # Optional
 # Initialize
 resp = requests.post(GATEWAY, json={
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
-    "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+    "params": {"protocolVersion": "2025-11-25", "capabilities": {},
                "clientInfo": {"name": "my-agent", "version": "1.0"}}
 }, headers=HEADERS)
 
@@ -321,6 +321,26 @@ Your Agent ──POST /mcp──→ MCPlex Gateway ──→ Upstream MCP Server
 ```
 
 Every `tools/call` goes through the security engine and is logged. Every `tools/list` goes through the semantic router. There's no way to bypass it — if your agent uses MCPlex as its MCP endpoint, **all calls are intercepted, checked, and logged**.
+
+## 🤖 Compatible AI Models
+
+MCPlex is model-agnostic — it routes any MCP-compliant client traffic regardless of which LLM is driving it. These are the frontier models actively tested with MCPlex as of July 2026:
+
+| Model | Provider | MCP Client | Best For |
+|-------|----------|-----------|----------|
+| **GPT-5.6 Sol** | OpenAI | ChatGPT Work, custom | Flagship reasoning + agentic tasks |
+| **GPT-5.6 Terra** | OpenAI | ChatGPT Work, custom | Balanced performance / cost |
+| **GPT-5.6 Luna** | OpenAI | ChatGPT Work, custom | Cost-efficient everyday tasks |
+| **Claude Fable 5** | Anthropic | Claude Code, Claude Desktop | Extended reasoning + code |
+| **Claude Mythos 5** | Anthropic | Claude Code, Claude Desktop | Complex multi-step agent workflows |
+| **Claude Sonnet 5** | Anthropic | Claude Code, Claude Desktop | High-capability, broad availability |
+| **Gemini 3.5 Flash** | Google | Gemini Spark, custom | High-throughput, cost-efficient |
+| **Gemini 3.1 Pro** | Google | Gemini Spark, custom | Multimodal + Workspace integration |
+| **Grok 4.5** | xAI | Custom / open-weight stacks | Competitive reasoning, open ecosystem |
+
+The meta-tool pattern (3 gateway tools, ~200 tokens) is particularly effective with models that have smaller default context budgets — MCPlex's token savings become more impactful as model costs rise.
+
+> **Context savings scale with model pricing.** With GPT-5.6 Sol at frontier pricing, eliminating 40k tokens of tool definitions per request translates to measurable cost reduction at scale.
 
 ## 🧠 Semantic Tool Routing
 
@@ -704,7 +724,31 @@ Every tool call, security event, and routing decision is forwarded to AgentLens'
 
 > **Note:** MCPlex works 100% independently without AgentLens. The bridge is entirely opt-in.
 
-## Contributing
+## 🔥 The Forge Integration
+
+MCPlex pairs naturally with [The Forge](https://github.com/ModernOps888/the-forge) — a multi-agent code evolution platform that pits frontier models head-to-head on coding challenges using evolutionary algorithms.
+
+The Forge exposes its own MCP server, which means you can add it to MCPlex just like any other server:
+
+```toml
+[[servers]]
+name = "forge"
+url = "http://localhost:8400/mcp"   # The Forge MCP endpoint
+transport = "streamable-http"
+allowed_roles = ["developer", "admin"]
+```
+
+With this setup, your agents can invoke Forge tools (multi-model arena runs, evolution sessions, research synthesis) through the same gateway — with full RBAC, audit logging, and token-saving routing applied automatically.
+
+| Forge Tool | What It Does |
+|------------|-------------|
+| `forge_run_arena` | Pit GPT-5.6 / Claude Fable 5 / Gemini / Grok head-to-head on a coding challenge |
+| `forge_evolve` | Apply mutation operators to code and run fitness-gated selection |
+| `forge_research` | Deep-research a topic across multiple models, synthesise consensus |
+| `forge_benchmark` | Score and rank model outputs on custom evaluation criteria |
+
+> MCPlex works 100% independently without The Forge. See [github.com/ModernOps888/the-forge](https://github.com/ModernOps888/the-forge) for setup.
+
 
 Contributions are welcome! Please:
 
@@ -719,7 +763,18 @@ Contributions are welcome! Please:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🔧 Recent Changes (v0.6.0 — Audit Hardening & Denial Telemetry)
+## 🔧 Recent Changes (v0.7.0 — Model Ecosystem Refresh)
+
+- **Compatible Models Dashboard Panel** — Built-in dashboard now shows a `🤖 Compatible Models` panel with colour-coded provider badges for all 9 active frontier models: GPT-5.6 Sol/Terra/Luna, Claude Fable 5/Mythos 5/Sonnet 5, Gemini 3.5 Flash/3.1 Pro, Grok 4.5.
+- **Ecosystem Footer** — Dashboard footer now links to AgentLens, The Forge, and GitHub with the current MCP protocol version displayed.
+- **Expanded Server Examples** — `mcplex.toml` and `examples/` updated with `memory`, `fetch`, `brave-search`, `postgres`, `sequential-thinking`, and `forge` (The Forge MCP) server blocks.
+- **The Forge Integration** — New README section with example config and tool table for connecting [The Forge](https://github.com/ModernOps888/the-forge) multi-model arena as an MCP server.
+- **Compatible AI Models Table** — Full July 2026 model matrix in the README with MCP client and use-case guidance.
+- **Fixed** Python example protocol version `2025-03-26` → `2025-11-25`.
+- **Fixed** missing CHANGELOG comparison links for v0.4.0–v0.6.0.
+
+<details>
+<summary>Previous (v0.6.0 — Audit Hardening &amp; Denial Telemetry)</summary>
 
 - **Audit Log Secret Redaction** — Values under sensitive keys (`password`, `token`, `api_key`, `secret`, `credential`, etc.) are recursively replaced with `[REDACTED]` before hitting disk; credentials never persist in `audit.jsonl`.
 - **Spoof-Proof Rate Limiting** — Client identity now comes from the real socket address (`ConnectInfo`), falling back to the first `X-Forwarded-For` hop only behind proxies; header spoofing no longer evades limits.
@@ -728,8 +783,9 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Panic Fix** — `tools/list` in meta-tool mode no longer panics when fewer real tools than meta-tools are connected (saturating arithmetic).
 - **2 new audit redaction tests** (31 total); live smoke test verified end-to-end.
 
-<details>
-<summary>Previous (v0.5.0 — Security by Design)</summary>
+</details>
+
+
 
 - **Constant-Time API Key Verification** — Key comparison is no longer vulnerable to timing side-channels.
 - **Trusted Role Binding** — Multi-tenant API keys now bind their RBAC role at the middleware layer (`X-MCPlex-Role` injected server-side). Clients can no longer self-assert a role via `_mcplex_role` when authenticated.

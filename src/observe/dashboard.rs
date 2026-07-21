@@ -560,6 +560,66 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             margin-bottom: 0.5rem;
             opacity: 0.5;
         }
+        /* ─── Ecosystem footer ─── */
+        .eco-footer {
+            position: relative;
+            z-index: 1;
+            padding: 0.75rem 2rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-secondary);
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+        .eco-links {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        .eco-link {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .eco-link:hover { color: var(--accent); }
+        /* ─── Models grid ─── */
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.5rem;
+            padding: 0.75rem 1.25rem 1rem;
+        }
+        .model-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            padding: 0.35rem 0.5rem;
+            border-radius: 8px;
+            transition: background 0.15s;
+        }
+        .model-row:hover { background: rgba(6, 182, 212, 0.04); }
+        .model-provider {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 0.1rem 0.4rem;
+            border-radius: 5px;
+            min-width: 68px;
+            text-align: center;
+        }
+        .mp-openai  { background: rgba(16,185,129,0.12); color: #10b981; }
+        .mp-anthropic { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .mp-google  { background: rgba(59,130,246,0.12); color: #3b82f6; }
+        .mp-xai     { background: rgba(139,92,246,0.12); color: #8b5cf6; }
+        .model-name { font-weight: 600; color: var(--text-primary); flex: 1; }
+        .model-tier { font-size: 0.7rem; color: var(--text-muted); }
     </style>
 </head>
 <body>
@@ -626,7 +686,38 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             </div>
             <div class="event-feed" id="event-feed"></div>
         </div>
+        <div class="section">
+            <div class="section-header">
+                🤖 Compatible Models
+                <span class="count">July 2026</span>
+            </div>
+            <div class="models-grid">
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Sol</span><span class="model-tier">Flagship</span></div>
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Terra</span><span class="model-tier">Balanced</span></div>
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Luna</span><span class="model-tier">Cost-efficient</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Fable 5</span><span class="model-tier">Extended reasoning</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Mythos 5</span><span class="model-tier">Agentic workflows</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Sonnet 5</span><span class="model-tier">Broad availability</span></div>
+                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.5 Flash</span><span class="model-tier">High-throughput</span></div>
+                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.1 Pro</span><span class="model-tier">Multimodal</span></div>
+                <div class="model-row"><span class="model-provider mp-xai">xAI</span><span class="model-name">Grok 4.5</span><span class="model-tier">Open ecosystem</span></div>
+            </div>
+        </div>
     </div>
+    <footer class="eco-footer">
+        <span>MCPlex v__MCPLEX_VERSION__ · MCP 2025-11-25</span>
+        <div class="eco-links">
+            <a class="eco-link" href="https://github.com/ModernOps888/agentlens" target="_blank" rel="noopener">
+                🔍 AgentLens
+            </a>
+            <a class="eco-link" href="https://github.com/ModernOps888/the-forge" target="_blank" rel="noopener">
+                🔥 The Forge
+            </a>
+            <a class="eco-link" href="https://github.com/ModernOps888/mcplex" target="_blank" rel="noopener">
+                ⭐ GitHub
+            </a>
+        </div>
+    </footer>
     <script>
         let prevCounters = {};
 

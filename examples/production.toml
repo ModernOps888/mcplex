@@ -10,7 +10,7 @@ name = "prod-gateway"
 rate_limit_rps = 100
 
 [router]
-strategy = "keyword"
+strategy = "semantic"      # semantic routing recommended for 10+ servers
 top_k = 5
 similarity_threshold = 0.15
 
@@ -35,6 +35,38 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/data/shared"]
 allowed_roles = ["developer", "admin"]
 
 [[servers]]
+name = "memory"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "fetch"
+command = "uvx"
+args = ["mcp-server-fetch"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "search"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+env = { BRAVE_API_KEY = "${BRAVE_API_KEY}" }
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "thinking"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+allowed_roles = ["developer", "admin"]
+
+[[servers]]
+name = "postgres"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+blocked_tools = ["drop_table", "delete_*", "truncate_*"]
+allowed_roles = ["admin"]
+
+[[servers]]
 name = "database"
 url = "http://db-mcp-server:8080/mcp"
 transport = "streamable-http"
@@ -47,6 +79,13 @@ command = "npx"
 args = ["-y", "@modelcontextprotocol/server-slack"]
 env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
 allowed_roles = ["admin"]
+
+[[servers]]
+name = "forge"
+url = "http://forge-server:8400/mcp"  # The Forge multi-model arena
+transport = "streamable-http"
+allowed_roles = ["developer", "admin"]
+
 
 # ── Roles ──
 

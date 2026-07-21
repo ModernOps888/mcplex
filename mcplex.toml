@@ -43,6 +43,43 @@ audit_log_path = "./logs/audit.jsonl"  # Audit log file path
 # args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
 # allowed_roles = ["developer", "admin"]
 
+# Example: Memory MCP Server — persistent key-value memory for agents
+# [[servers]]
+# name = "memory"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-memory"]
+# allowed_roles = ["developer", "admin"]
+
+# Example: Fetch MCP Server — web page fetching / crawling
+# [[servers]]
+# name = "fetch"
+# command = "uvx"
+# args = ["mcp-server-fetch"]
+# allowed_roles = ["developer", "admin"]
+
+# Example: Brave Search MCP Server — web search
+# [[servers]]
+# name = "search"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-brave-search"]
+# env = { BRAVE_API_KEY = "${BRAVE_API_KEY}" }
+# allowed_roles = ["developer", "admin"]
+
+# Example: PostgreSQL MCP Server — database access
+# [[servers]]
+# name = "postgres"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+# blocked_tools = ["drop_table", "delete_*", "truncate_*"]
+# allowed_roles = ["admin"]
+
+# Example: Sequential Thinking MCP Server — structured reasoning
+# [[servers]]
+# name = "thinking"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+# allowed_roles = ["developer", "admin"]
+
 # Example: Remote MCP Server (HTTP transport)
 # [[servers]]
 # name = "database"
@@ -58,6 +95,14 @@ audit_log_path = "./logs/audit.jsonl"  # Audit log file path
 # args = ["-y", "@modelcontextprotocol/server-slack"]
 # env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
 # allowed_roles = ["admin"]
+
+# Example: The Forge MCP Server — multi-model code evolution arena
+# See: https://github.com/ModernOps888/the-forge
+# [[servers]]
+# name = "forge"
+# url = "http://localhost:8400/mcp"
+# transport = "streamable-http"
+# allowed_roles = ["developer", "admin"]
 
 # ─────────────────────────────────────────────
 # Roles (used when security.enable_rbac = true)
@@ -109,3 +154,23 @@ max_entries = 1000               # Max cached responses
 # forward_security_events = true                     # Forward RBAC blocks, rate limits
 # forward_cache_events = false                       # Forward cache hits/misses (noisy)
 
+# ─────────────────────────────────────────────
+# Compatible AI Models (July 2026)
+# MCPlex is model-agnostic — any MCP client works.
+# Reference table for cost estimation and routing tuning:
+# ─────────────────────────────────────────────
+#
+# Provider    Model               Tier
+# ────────────────────────────────────────────────────
+# OpenAI      GPT-5.6 Sol        Flagship (highest cost)
+# OpenAI      GPT-5.6 Terra      Balanced
+# OpenAI      GPT-5.6 Luna       Cost-efficient
+# Anthropic   Claude Fable 5     Extended reasoning
+# Anthropic   Claude Mythos 5    Complex agentic workflows
+# Anthropic   Claude Sonnet 5    High-capability, broad use
+# Google      Gemini 3.5 Flash   High-throughput, value tier
+# Google      Gemini 3.1 Pro     Multimodal, Workspace
+# xAI         Grok 4.5           Open ecosystem, competitive
+#
+# At frontier pricing, MCPlex's 70-90% token savings via meta-tool
+# routing translate directly to proportional cost reduction.
