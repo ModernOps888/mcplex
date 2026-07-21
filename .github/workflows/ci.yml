@@ -41,6 +41,17 @@ jobs:
       - name: Run tests
         run: cargo test --all-features
 
+  audit:
+    name: Supply-chain audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
   build:
     name: Build (${{ matrix.target }})
     needs: test

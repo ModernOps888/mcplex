@@ -44,13 +44,14 @@ impl ToolCache {
     pub fn get(
         &self,
         tool_name: &str,
+        role: Option<&str>,
         arguments: &Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
         if !self.is_cacheable(tool_name) {
             return None;
         }
 
-        let key = Self::cache_key(tool_name, arguments);
+        let key = Self::cache_key(tool_name, role, arguments);
 
         if let Ok(mut entries) = self.entries.write() {
             if let Some(entry) = entries.get_mut(&key) {
@@ -72,6 +73,7 @@ impl ToolCache {
     pub fn put(
         &self,
         tool_name: &str,
+        role: Option<&str>,
         arguments: &Option<serde_json::Value>,
         value: serde_json::Value,
     ) {
@@ -79,7 +81,7 @@ impl ToolCache {
             return;
         }
 
-        let key = Self::cache_key(tool_name, arguments);
+        let key = Self::cache_key(tool_name, role, arguments);
 
         if let Ok(mut entries) = self.entries.write() {
             // Evict if at capacity — remove oldest expired entries first
@@ -176,15 +178,24 @@ impl ToolCache {
         })
     }
 
-    /// Generate a deterministic cache key from tool name + arguments
-    fn cache_key(tool_name: &str, arguments: &Option<serde_json::Value>) -> String {
+    /// Generate a deterministic cache key from tool name + caller role + arguments.
+    /// Partitioning by role prevents a cached response fetched under one
+    /// API key/role from leaking to a caller with a different identity in
+    /// multi-tenant deployments. `tool_name` stays the leading segment so
+    /// `invalidate()`'s prefix match still works across all roles.
+    fn cache_key(
+        tool_name: &str,
+        role: Option<&str>,
+        arguments: &Option<serde_json::Value>,
+    ) -> String {
         match arguments {
             Some(args) => format!(
-                "{}:{}",
+                "{}:{}:{}",
                 tool_name,
+                role.unwrap_or(""),
                 serde_json::to_string(args).unwrap_or_default()
             ),
-            None => format!("{}:()", tool_name),
+            None => format!("{}:{}:()", tool_name, role.unwrap_or("")),
         }
     }
 }
@@ -208,14 +219,14 @@ mod tests {
         let args = Some(serde_json::json!({"filter": "active"}));
 
         // Miss
-        assert!(cache.get("list_tables", &args).is_none());
+        assert!(cache.get("list_tables", None, &args).is_none());
 
         // Put
         let result = serde_json::json!({"tables": ["users", "orders"]});
-        cache.put("list_tables", &args, result.clone());
+        cache.put("list_tables", None, &args, result.clone());
 
         // Hit
-        let cached = cache.get("list_tables", &args);
+        let cached = cache.get("list_tables", None, &args);
         assert!(cached.is_some());
         assert_eq!(cached.unwrap(), result);
     }
@@ -228,8 +239,8 @@ mod tests {
         let args = Some(serde_json::json!({"name": "test"}));
         let result = serde_json::json!({"id": 1});
 
-        cache.put("create_issue", &args, result);
-        assert!(cache.get("create_issue", &args).is_none());
+        cache.put("create_issue", None, &args, result);
+        assert!(cache.get("create_issue", None, &args).is_none());
     }
 
     #[test]
@@ -237,11 +248,11 @@ mod tests {
         let cache = ToolCache::new(0, 100, vec![]); // 0 second TTL
 
         let args = None;
-        cache.put("list_tables", &args, serde_json::json!({}));
+        cache.put("list_tables", None, &args, serde_json::json!({}));
 
         // Should be expired immediately
         std::thread::sleep(std::time::Duration::from_millis(10));
-        assert!(cache.get("list_tables", &args).is_none());
+        assert!(cache.get("list_tables", None, &args).is_none());
     }
 
     #[test]
@@ -252,27 +263,46 @@ mod tests {
         let val = serde_json::json!("ok");
 
         // Exact match
-        cache.put("my_tool", &args, val.clone());
-        assert!(cache.get("my_tool", &args).is_some());
+        cache.put("my_tool", None, &args, val.clone());
+        assert!(cache.get("my_tool", None, &args).is_some());
 
         // Glob match
-        cache.put("custom_query", &args, val.clone());
-        assert!(cache.get("custom_query", &args).is_some());
+        cache.put("custom_query", None, &args, val.clone());
+        assert!(cache.get("custom_query", None, &args).is_some());
 
         // Non-match (list_ wouldn't match with custom patterns set)
-        cache.put("list_tables", &args, val);
-        assert!(cache.get("list_tables", &args).is_none());
+        cache.put("list_tables", None, &args, val);
+        assert!(cache.get("list_tables", None, &args).is_none());
     }
 
     #[test]
     fn test_invalidation() {
         let cache = ToolCache::new(60, 100, vec![]);
 
-        cache.put("list_tables", &None, serde_json::json!({"a": 1}));
-        cache.put("list_repos", &None, serde_json::json!({"b": 2}));
+        cache.put("list_tables", None, &None, serde_json::json!({"a": 1}));
+        cache.put("list_repos", None, &None, serde_json::json!({"b": 2}));
 
         cache.invalidate("list_tables");
-        assert!(cache.get("list_tables", &None).is_none());
-        assert!(cache.get("list_repos", &None).is_some());
+        assert!(cache.get("list_tables", None, &None).is_none());
+        assert!(cache.get("list_repos", None, &None).is_some());
+    }
+
+    #[test]
+    fn test_role_partitioned_cache() {
+        let cache = ToolCache::new(60, 100, vec![]);
+        let args = Some(serde_json::json!({"id": 1}));
+
+        // tenant "admin" stores a result...
+        cache.put(
+            "get_record",
+            Some("admin"),
+            &args,
+            serde_json::json!({"secret": true}),
+        );
+
+        // ...a different role with the same tool+args must NOT see it
+        assert!(cache.get("get_record", Some("viewer"), &args).is_none());
+        // the same role does see its own cached result
+        assert!(cache.get("get_record", Some("admin"), &args).is_some());
     }
 }

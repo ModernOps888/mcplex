@@ -422,6 +422,8 @@ allowed_tools = ["*/list_*", "*/get_*"]
 blocked_tools = ["*/delete_*", "*/drop_*"]
 ```
 
+> **Role trust boundary:** a caller's role is only ever established server-side, from a verified `api_key`/`api_keys` match — never from anything a client sends in the request body. When `enable_rbac = true` and no `api_key`/`api_keys` are configured, every tool call is denied by default (no role can be established), and the gateway logs a startup warning so this isn't mistaken for a bug.
+
 ### Per-Server Tool Blocklists
 
 ```toml
@@ -457,6 +459,13 @@ Built-in observability dashboard at `http://localhost:9090`:
 
 Glassmorphism design with animated gradients. Auto-refreshes every 3 seconds. Zero configuration.
 
+By default the dashboard's `/api/*` routes are unauthenticated — fine for `127.0.0.1`-only binds, but if you expose the dashboard beyond localhost, set `gateway.dashboard_api_key` so requests need an `Authorization: Bearer <key>` (or `X-API-Key`) header:
+
+```toml
+[gateway]
+dashboard_api_key = "${MCPLEX_DASHBOARD_API_KEY}"
+```
+
 ## 📦 Response Caching
 
 Avoid redundant upstream calls for read-only tools:
@@ -468,7 +477,7 @@ ttl_seconds = 300     # 5 minute TTL
 max_entries = 1000    # Max cached responses
 ```
 
-MCPlex **auto-detects** read-only tools by prefix (`list_*`, `get_*`, `search_*`, `query_*`, `describe_*`, `show_*`). You can override with custom patterns:
+Cached responses are partitioned by caller role, so a cache entry from one role/tenant is never served to another. MCPlex **auto-detects** read-only tools by prefix (`list_*`, `get_*`, `search_*`, `query_*`, `describe_*`, `show_*`). You can override with custom patterns:
 
 ```toml
 [cache]
@@ -527,6 +536,7 @@ MCPlex aggregates and forwards **all three** MCP capability types from upstream 
 | `hot_reload` | bool | `true` | Auto-reload config on file change |
 | `name` | string | `mcplex` | Gateway instance name |
 | `api_key` | string | — | API key for client auth (supports `${ENV}`) |
+| `dashboard_api_key` | string | — | API key for the dashboard `/api/*` routes (supports `${ENV}`). If unset, the dashboard is unauthenticated — bind it to `127.0.0.1` in that case. |
 | `rate_limit_rps` | int | `0` | Max requests/sec per client (0 = unlimited) |
 
 ### `[router]`
@@ -549,7 +559,8 @@ MCPlex aggregates and forwards **all three** MCP capability types from upstream 
 | `max_log_size_mb` | int | `100` | Max log file size before rotation (keeps 5 backups) |
 | `circuit_breaker_max_crashes` | int | `5` | Max crashes within the window before respawns are blocked |
 | `circuit_breaker_window_secs` | int | `60` | Sliding window (seconds) for crash counting |
-| `request_timeout_secs` | int | `30` | Per-server request timeout for HTTP upstream calls (0 = no timeout) |
+| `request_timeout_secs` | int | `30` | Steady-state per-request timeout for HTTP and stdio upstream calls, once connected (0 = no timeout) |
+| `default_handshake_timeout_secs` | int | `30` | Default timeout for the initial stdio MCP handshake (`initialize`), before a server is considered failed and enters the respawn loop. Overridable per server — see `servers[].handshake_timeout_secs` below. (0 = no timeout) |
 
 ### `[[servers]]`
 
@@ -564,10 +575,21 @@ MCPlex aggregates and forwards **all three** MCP capability types from upstream 
 | `blocked_tools` | list | — | Tool blocklist patterns (glob) |
 | `allowed_tools` | list | — | Tool allowlist patterns (glob) |
 | `enabled` | bool | `true` | Enable/disable this server |
+| `handshake_timeout_secs` | int | — | Per-server override for the initial stdio handshake timeout. Falls back to `security.default_handshake_timeout_secs` when unset. Useful for servers with a slow cold start, e.g. `npx` resolving/downloading a package on first run (0 = no timeout) |
 
 ⚡ = One of `command` or `url` is required
 
 > **Note:** For stdio servers, `command` should be the **executable path** (e.g. `npx`, `/usr/bin/python3`). Additional arguments go in the `args` array.
+
+> **Handshake timeout vs. request timeout:** the initial stdio `initialize` handshake and steady-state `tools/call` requests use two independent timeouts. A slow-starting server (e.g. `npx` fetching a package on first run) can be given a longer `handshake_timeout_secs` without loosening the timeout applied to every later tool call:
+> ```toml
+> [[servers]]
+> name = "slow-npx-server"
+> command = "npx"
+> args = ["-y", "@some/mcp-server"]
+> handshake_timeout_secs = 90  # default 30s, 0 = no timeout
+> ```
+
 
 ### `[roles.<name>]`
 
@@ -763,7 +785,18 @@ Contributions are welcome! Please:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🔧 Recent Changes (v0.7.0 — Model Ecosystem Refresh)
+## 🔧 Recent Changes (v0.7.1 — Security Hardening &amp; Configurable Handshake Timeout)
+
+- **RBAC Self-Assertion Bypass Fixed (HIGH)** — `dispatch_real_tool` previously fell back to a client-supplied `_mcplex_role` request param whenever no server-verified role was established (e.g. no `api_key`/`api_keys` configured). Any caller could self-assert `role: "admin"` and bypass RBAC entirely. The role now comes exclusively from the auth middleware's server-verified `trusted_role`.
+- **Dashboard Authentication** — `/api/*` dashboard routes were previously unauthenticated. Added optional `gateway.dashboard_api_key`; when set, dashboard routes require a matching `Authorization: Bearer`/`X-API-Key` header. Unset by default (backward compatible), with a startup warning to bind localhost-only in that case.
+- **Role-Partitioned Cache** — The tool response cache is now partitioned by caller role, closing a cross-tenant leakage gap in multi-key deployments.
+- **Empty-Secret Rejection** — `validate_config` now rejects `gateway.api_key`/`dashboard_api_key`/`api_keys` that resolve to an empty string (e.g. from an unset `${ENV_VAR}`), instead of silently turning "auth required" into a no-op.
+- **Configurable Stdio Handshake Timeout** (fixes [#20](https://github.com/ModernOps888/mcplex/issues/20)) — the initial `initialize` handshake and steady-state tool calls now use independent timeouts: `security.default_handshake_timeout_secs` (global, default 30s) and `servers[].handshake_timeout_secs` (per-server override) for the handshake, vs. `security.request_timeout_secs` for steady-state calls. Fixes spurious failures on slow-cold-start servers (e.g. `npx` downloading a package on first run). `0 = no timeout` is now actually implemented for both.
+- **Audit Redaction List Expanded** — added `pwd`, `auth`, `cookie`, `session`, `bearer` to the sensitive-key redaction list.
+- **38 tests passing** (up from 32) — new regression tests for the RBAC fix, cache partitioning, and handshake-timeout config.
+
+<details>
+<summary>Previous (v0.7.0 — Model Ecosystem Refresh)</summary>
 
 - **Compatible Models Dashboard Panel** — Built-in dashboard now shows a `🤖 Compatible Models` panel with colour-coded provider badges for all 9 active frontier models: GPT-5.6 Sol/Terra/Luna, Claude Fable 5/Mythos 5/Sonnet 5, Gemini 3.5 Flash/3.1 Pro, Grok 4.5.
 - **Ecosystem Footer** — Dashboard footer now links to AgentLens, The Forge, and GitHub with the current MCP protocol version displayed.
@@ -772,6 +805,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Compatible AI Models Table** — Full July 2026 model matrix in the README with MCP client and use-case guidance.
 - **Fixed** Python example protocol version `2025-03-26` → `2025-11-25`.
 - **Fixed** missing CHANGELOG comparison links for v0.4.0–v0.6.0.
+
+</details>
 
 <details>
 <summary>Previous (v0.6.0 — Audit Hardening &amp; Denial Telemetry)</summary>
@@ -784,6 +819,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **2 new audit redaction tests** (31 total); live smoke test verified end-to-end.
 
 </details>
+
 
 
 

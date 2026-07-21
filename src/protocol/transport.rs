@@ -755,15 +755,14 @@ async fn dispatch_real_tool(
 ) -> JsonRpcResponse {
     let tool_name = params.name.clone();
 
-    // Trusted role from authenticated API key takes precedence.
-    let role = trusted_role.or_else(|| {
-        request
-            .params
-            .as_ref()
-            .and_then(|p| p.get("_mcplex_role"))
-            .and_then(|r| r.as_str())
-            .map(|s| s.to_string())
-    });
+    // Role must come from the server-verified `trusted_role` (set by the auth
+    // middleware only after a successful API key match — see
+    // `auth_and_rate_limit_middleware`). Never honor a client-supplied
+    // `_mcplex_role` in the request params: when no api_key/api_keys are
+    // configured, trusted_role is always None, and falling back to a
+    // client-controlled value here would let any caller self-assert
+    // "admin" and bypass RBAC entirely.
+    let role = trusted_role;
 
     // Security check (with role if available)
     let security = state.security.read().await;
@@ -791,7 +790,10 @@ async fn dispatch_real_tool(
     drop(config);
 
     if cache_enabled {
-        if let Some(cached_result) = state.cache.get(&tool_name, &params.arguments) {
+        if let Some(cached_result) = state
+            .cache
+            .get(&tool_name, role.as_deref(), &params.arguments)
+        {
             let elapsed = start.elapsed();
             state.metrics.record_event(EventType::ToolCall {
                 tool_name: tool_name.clone(),
@@ -830,9 +832,12 @@ async fn dispatch_real_tool(
                 Ok(result_value) => {
                     // Store in cache if enabled
                     if cache_enabled {
-                        state
-                            .cache
-                            .put(&tool_name, &params.arguments, result_value.clone());
+                        state.cache.put(
+                            &tool_name,
+                            role.as_deref(),
+                            &params.arguments,
+                            result_value.clone(),
+                        );
                     }
                     JsonRpcResponse::success(request.id.clone(), result_value)
                 }
@@ -1138,7 +1143,7 @@ fn json_max_depth(value: &serde_json::Value, depth: usize) -> usize {
     }
 }
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -1150,7 +1155,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-fn extract_api_key(request: &axum::extract::Request) -> Option<String> {
+pub(crate) fn extract_api_key(request: &axum::extract::Request) -> Option<String> {
     request
         .headers()
         .get("authorization")
