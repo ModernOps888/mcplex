@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/ModernOps888/mcplex/actions/workflows/ci.yml/badge.svg)](https://github.com/ModernOps888/mcplex/actions/workflows/ci.yml)
 [![Release](https://github.com/ModernOps888/mcplex/actions/workflows/release.yml/badge.svg)](https://github.com/ModernOps888/mcplex/releases)
+[![Glama Score](https://glama.ai/mcp/servers/ModernOps888/mcplex/badges/score.svg)](https://glama.ai/mcp/servers/ModernOps888/mcplex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue.svg)](https://modelcontextprotocol.io)

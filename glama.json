@@ -1,0 +1,25 @@
+{
+  "$schema": "https://glama.ai/mcp/glama.schema.json",
+  "name": "mcplex",
+  "title": "MCPlex Gateway",
+  "description": "Security-first MCP smart gateway providing semantic routing, RBAC, tool call caching, rate limiting, and observability for Model Context Protocol servers.",
+  "repository": "https://github.com/ModernOps888/mcplex",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Bartek Chmiel",
+      "url": "https://github.com/ModernOps888"
+    }
+  ],
+  "keywords": [
+    "mcp",
+    "mcp-gateway",
+    "mcp-proxy",
+    "model-context-protocol",
+    "semantic-routing",
+    "security",
+    "rbac",
+    "rate-limiting",
+    "rust"
+  ]
+}
