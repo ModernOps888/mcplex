@@ -5,6 +5,13 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-09-27
+
+### 🤖 Model Ecosystem & Reasoning Refresh
+- **DeepSeek V3 / R1 integration** — Added DeepSeek open frontier and reasoning models to the built-in dashboard with dedicated `.mp-deepseek` styling and to the `mcplex.toml` reference.
+- **Extended reasoning models** — Documented support and configuration for Claude 3.7 Sonnet (hybrid reasoning) and OpenAI `o3` / `o3-mini` in the README compatibility table.
+- **Dashboard models grid** — Upgraded dashboard compatible models panel to dynamically reflect current frontier models with provider badges.
+
 ## [0.7.1] — 2026-07-21
 
 ### 🔒 Security
