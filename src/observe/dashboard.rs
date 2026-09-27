@@ -660,6 +660,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         .mp-openai  { background: rgba(16,185,129,0.12); color: #10b981; }
         .mp-anthropic { background: rgba(245,158,11,0.12); color: #f59e0b; }
         .mp-google  { background: rgba(59,130,246,0.12); color: #3b82f6; }
+        .mp-deepseek { background: rgba(6,182,212,0.12); color: #06b6d4; }
         .mp-xai     { background: rgba(139,92,246,0.12); color: #8b5cf6; }
         .model-name { font-weight: 600; color: var(--text-primary); flex: 1; }
         .model-tier { font-size: 0.7rem; color: var(--text-muted); }
@@ -732,7 +733,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         <div class="section">
             <div class="section-header">
                 🤖 Compatible Models
-                <span class="count">July 2026</span>
+                <span class="count">Frontier Models</span>
             </div>
             <div class="models-grid">
                 <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Sol</span><span class="model-tier">Flagship</span></div>
@@ -743,6 +744,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
                 <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Sonnet 5</span><span class="model-tier">Broad availability</span></div>
                 <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.5 Flash</span><span class="model-tier">High-throughput</span></div>
                 <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.1 Pro</span><span class="model-tier">Multimodal</span></div>
+                <div class="model-row"><span class="model-provider mp-deepseek">DeepSeek</span><span class="model-name">DeepSeek V3 / R1</span><span class="model-tier">Open Frontier</span></div>
                 <div class="model-row"><span class="model-provider mp-xai">xAI</span><span class="model-name">Grok 4.5</span><span class="model-tier">Open ecosystem</span></div>
             </div>
         </div>

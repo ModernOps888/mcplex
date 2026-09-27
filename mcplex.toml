@@ -165,11 +165,14 @@ max_entries = 1000               # Max cached responses
 # OpenAI      GPT-5.6 Sol        Flagship (highest cost)
 # OpenAI      GPT-5.6 Terra      Balanced
 # OpenAI      GPT-5.6 Luna       Cost-efficient
+# OpenAI      o3 / o3-mini       Deep reasoning / low-latency reasoning
 # Anthropic   Claude Fable 5     Extended reasoning
 # Anthropic   Claude Mythos 5    Complex agentic workflows
 # Anthropic   Claude Sonnet 5    High-capability, broad use
+# Anthropic   Claude 3.7 Sonnet  Hybrid reasoning + fast code
 # Google      Gemini 3.5 Flash   High-throughput, value tier
 # Google      Gemini 3.1 Pro     Multimodal, Workspace
+# DeepSeek    DeepSeek V3 / R1   Open frontier, cost-efficient reasoning
 # xAI         Grok 4.5           Open ecosystem, competitive
 #
 # At frontier pricing, MCPlex's 70-90% token savings via meta-tool

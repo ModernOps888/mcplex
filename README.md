@@ -325,18 +325,21 @@ Every `tools/call` goes through the security engine and is logged. Every `tools/
 
 ## 🤖 Compatible AI Models
 
-MCPlex is model-agnostic — it routes any MCP-compliant client traffic regardless of which LLM is driving it. These are the frontier models actively tested with MCPlex as of July 2026:
+MCPlex is model-agnostic — it routes any MCP-compliant client traffic regardless of which LLM is driving it. These are the frontier models actively tested and validated with MCPlex:
 
 | Model | Provider | MCP Client | Best For |
 |-------|----------|-----------|----------|
 | **GPT-5.6 Sol** | OpenAI | ChatGPT Work, custom | Flagship reasoning + agentic tasks |
 | **GPT-5.6 Terra** | OpenAI | ChatGPT Work, custom | Balanced performance / cost |
 | **GPT-5.6 Luna** | OpenAI | ChatGPT Work, custom | Cost-efficient everyday tasks |
-| **Claude Fable 5** | Anthropic | Claude Code, Claude Desktop | Extended reasoning + code |
+| **o3 / o3-mini** | OpenAI | Custom, Cursor, IDEs | Deep math, logic & low-latency reasoning |
+| **Claude Fable 5** | Anthropic | Claude Code, Claude Desktop | Extended reasoning + autonomous code |
 | **Claude Mythos 5** | Anthropic | Claude Code, Claude Desktop | Complex multi-step agent workflows |
 | **Claude Sonnet 5** | Anthropic | Claude Code, Claude Desktop | High-capability, broad availability |
+| **Claude 3.7 Sonnet** | Anthropic | Claude Code, Cursor, Windsurf | Hybrid reasoning + high-speed coding |
 | **Gemini 3.5 Flash** | Google | Gemini Spark, custom | High-throughput, cost-efficient |
 | **Gemini 3.1 Pro** | Google | Gemini Spark, custom | Multimodal + Workspace integration |
+| **DeepSeek V3 / R1** | DeepSeek | Custom, Open-WebUI, Ollama | Open frontier reasoning, cost efficiency |
 | **Grok 4.5** | xAI | Custom / open-weight stacks | Competitive reasoning, open ecosystem |
 
 The meta-tool pattern (3 gateway tools, ~200 tokens) is particularly effective with models that have smaller default context budgets — MCPlex's token savings become more impactful as model costs rise.
