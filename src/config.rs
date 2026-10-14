@@ -478,16 +478,18 @@ pub async fn watch_config(config_path: &str, state: Arc<crate::AppState>) -> any
     let (tx, rx) = std::sync::mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         if let Ok(event) = res {
-            if matches!(event.kind, EventKind::Modify(_)) {
+            if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                 let _ = tx.send(());
             }
         }
     })?;
 
     let path = Path::new(config_path);
-    if let Some(parent) = path.parent() {
-        watcher.watch(parent, RecursiveMode::NonRecursive)?;
-    }
+    let watch_dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    watcher.watch(watch_dir, RecursiveMode::NonRecursive)?;
 
     let config_path = config_path.to_string();
 

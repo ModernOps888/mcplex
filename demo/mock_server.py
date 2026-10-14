@@ -60,7 +60,7 @@ class MCPHandler(BaseHTTPRequestHandler):
         
         if method == "initialize":
             result = {
-                "protocolVersion": "2025-03-26",
+                "protocolVersion": "2025-11-25",
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": server_name, "version": "1.0.0"}
             }

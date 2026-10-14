@@ -34,8 +34,11 @@ impl SecurityEngine {
 
     /// Check if a tool is allowed for a given role
     pub fn is_tool_allowed(&self, tool_fqn: &str, role: Option<&str>) -> bool {
-        // Check allowlist first
-        if !self.allowlist.is_allowed(tool_fqn) {
+        // Check allowlist (including per-server allowed_roles when RBAC is enabled)
+        if !self
+            .allowlist
+            .is_allowed_for_role(tool_fqn, role, self.rbac_enabled)
+        {
             return false;
         }
 

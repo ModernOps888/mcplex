@@ -126,6 +126,11 @@ async fn handle_mcp_request(
 
     debug!("📥 MCP request: method={}", method);
 
+    let trusted_role = headers
+        .get("x-mcplex-role")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let response = match method.as_str() {
         "initialize" => handle_initialize(&state, &request).await,
         // MCP lifecycle notifications — silently accept per spec (MCP 2025-11-25 §Lifecycle)
@@ -137,7 +142,7 @@ async fn handle_mcp_request(
                 Json(JsonRpcResponse::success(request_id, serde_json::json!({}))),
             );
         }
-        "tools/list" => handle_tools_list(&state, &request).await,
+        "tools/list" => handle_tools_list(&state, &request, trusted_role.as_deref()).await,
         "tools/call" => handle_tools_call(&state, &request, &headers).await,
         "resources/list" => handle_resources_list(&state, &request).await,
         "resources/read" => handle_resources_read(&state, &request).await,
@@ -348,15 +353,21 @@ fn build_meta_tools() -> Vec<ToolDefinition> {
 /// - MetaTool: returns 3 gateway meta-tools (~200 tokens)
 /// - Passthrough: returns all real tools directly
 /// - Legacy: uses _mcplex_query param for filtering
-async fn handle_tools_list(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+async fn handle_tools_list(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    trusted_role: Option<&str>,
+) -> JsonRpcResponse {
     let config = state.config.read().await;
     let mode = config.router.mode.clone();
     drop(config);
 
     match mode {
         RouterMode::MetaTool => handle_tools_list_metatool(state, request).await,
-        RouterMode::Passthrough => handle_tools_list_passthrough(state, request).await,
-        RouterMode::Legacy => handle_tools_list_legacy(state, request).await,
+        RouterMode::Passthrough => {
+            handle_tools_list_passthrough(state, request, trusted_role).await
+        }
+        RouterMode::Legacy => handle_tools_list_legacy(state, request, trusted_role).await,
     }
 }
 
@@ -393,6 +404,7 @@ async fn handle_tools_list_metatool(state: &AppState, request: &JsonRpcRequest) 
 async fn handle_tools_list_passthrough(
     state: &AppState,
     request: &JsonRpcRequest,
+    trusted_role: Option<&str>,
 ) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
     let all_tools = multiplexer.get_all_tools();
@@ -401,7 +413,7 @@ async fn handle_tools_list_passthrough(
     let security = state.security.read().await;
     let visible_tools: Vec<&RegisteredTool> = all_tools
         .iter()
-        .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
+        .filter(|tool| security.is_tool_allowed(&tool.fqn, trusted_role))
         .collect();
 
     let tool_defs: Vec<ToolDefinition> =
@@ -424,7 +436,11 @@ async fn handle_tools_list_passthrough(
 }
 
 /// Legacy mode: use _mcplex_query param for filtering (deprecated)
-async fn handle_tools_list_legacy(state: &AppState, request: &JsonRpcRequest) -> JsonRpcResponse {
+async fn handle_tools_list_legacy(
+    state: &AppState,
+    request: &JsonRpcRequest,
+    trusted_role: Option<&str>,
+) -> JsonRpcResponse {
     let multiplexer = state.multiplexer.read().await;
     let router = state.router.read().await;
     let config = state.config.read().await;
@@ -464,7 +480,7 @@ async fn handle_tools_list_legacy(state: &AppState, request: &JsonRpcRequest) ->
     let security = state.security.read().await;
     let visible_tools: Vec<&RegisteredTool> = filtered_tools
         .iter()
-        .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
+        .filter(|tool| security.is_tool_allowed(&tool.fqn, trusted_role))
         .collect();
 
     let tool_defs: Vec<ToolDefinition> =
@@ -536,13 +552,13 @@ async fn handle_tools_call(
     // These are handled by the gateway itself, not forwarded upstream
     match tool_name.as_str() {
         "mcplex_find_tools" => {
-            return handle_meta_find_tools(state, request, &params).await;
+            return handle_meta_find_tools(state, request, &params, trusted_role.as_deref()).await;
         }
         "mcplex_call_tool" => {
             return handle_meta_call_tool(state, request, &params, trusted_role.clone()).await;
         }
         "mcplex_list_categories" => {
-            return handle_meta_list_categories(state, request).await;
+            return handle_meta_list_categories(state, request, trusted_role.as_deref()).await;
         }
         _ => {} // Fall through to normal tool dispatch
     }
@@ -559,6 +575,7 @@ async fn handle_meta_find_tools(
     state: &AppState,
     request: &JsonRpcRequest,
     params: &ToolCallParams,
+    trusted_role: Option<&str>,
 ) -> JsonRpcResponse {
     let meta_start = std::time::Instant::now();
 
@@ -608,10 +625,14 @@ async fn handle_meta_find_tools(
         selected_tools: routed.len(),
     });
 
+    if let Some(ref bridge) = state.agentlens {
+        bridge.forward_routing_event(&query, all_tools.len(), routed.len());
+    }
+
     // Apply security filtering and build response with full schemas
     let tool_results: Vec<serde_json::Value> = routed
         .iter()
-        .filter(|tool| security.is_tool_allowed(&tool.fqn, None))
+        .filter(|tool| security.is_tool_allowed(&tool.fqn, trusted_role))
         .map(|tool| {
             serde_json::json!({
                 "name": tool.definition.name,
@@ -696,16 +717,23 @@ async fn handle_meta_call_tool(
 async fn handle_meta_list_categories(
     state: &AppState,
     request: &JsonRpcRequest,
+    trusted_role: Option<&str>,
 ) -> JsonRpcResponse {
     let meta_start = std::time::Instant::now();
 
     let multiplexer = state.multiplexer.read().await;
+    let security = state.security.read().await;
     let all_tools = multiplexer.get_all_tools();
 
-    // Group tools by server name
+    // Group tools by server name (filtered by caller's role)
     let mut categories: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
+    let mut visible_count = 0usize;
     for tool in &all_tools {
+        if !security.is_tool_allowed(&tool.fqn, trusted_role) {
+            continue;
+        }
+        visible_count += 1;
         categories
             .entry(tool.server_name.clone())
             .or_default()
@@ -728,7 +756,7 @@ async fn handle_meta_list_categories(
             "type": "text",
             "text": serde_json::to_string_pretty(&serde_json::json!({
                 "total_categories": category_list.len(),
-                "total_tools": all_tools.len(),
+                "total_tools": visible_count,
                 "categories": category_list,
             })).unwrap_or_default()
         }]
@@ -764,19 +792,47 @@ async fn dispatch_real_tool(
     // "admin" and bypass RBAC entirely.
     let role = trusted_role;
 
-    // Security check (with role if available)
+    // Resolve owning server and bare tool name first so security checks
+    // always evaluate the canonical `server/tool` FQN and upstream calls
+    // always receive the bare tool name.
+    let (resolved_server, bare_name, fqn) = if let Some((srv, bare)) = tool_name.split_once('/') {
+        let mux = state.multiplexer.read().await;
+        let owner = mux
+            .find_tool_server(&tool_name)
+            .or_else(|| Some(srv.to_string()));
+        drop(mux);
+        (
+            owner,
+            bare.to_string(),
+            format!("{}/{}", srv, bare),
+        )
+    } else {
+        let mux = state.multiplexer.read().await;
+        let owner = mux.find_tool_server(&tool_name);
+        drop(mux);
+        let canonical_fqn = match owner {
+            Some(ref srv) => format!("{}/{}", srv, tool_name),
+            None => tool_name.clone(),
+        };
+        (owner, tool_name.clone(), canonical_fqn)
+    };
+
+    // Security check (with canonical FQN and role if available)
     let security = state.security.read().await;
-    if !security.is_tool_allowed(&tool_name, role.as_deref()) {
+    if !security.is_tool_allowed(&fqn, role.as_deref()) {
         warn!(
             "🚫 Tool call blocked by security policy: {} (role: {:?})",
-            tool_name, role
+            fqn, role
         );
         state.metrics.record_event(EventType::Security {
             kind: "blocked_tool".to_string(),
-            target: Some(tool_name.clone()),
+            target: Some(fqn.clone()),
             detail: Some(format!("role={}", role.as_deref().unwrap_or("none"))),
         });
-        security.audit_blocked_call(&tool_name, "security_policy");
+        security.audit_blocked_call(&fqn, "security_policy");
+        if let Some(ref bridge) = state.agentlens {
+            bridge.forward_security_event("blocked_tool", &fqn, "security_policy");
+        }
         return JsonRpcResponse::error(
             request.id.clone(),
             -32001,
@@ -792,11 +848,11 @@ async fn dispatch_real_tool(
     if cache_enabled {
         if let Some(cached_result) = state
             .cache
-            .get(&tool_name, role.as_deref(), &params.arguments)
+            .get(&bare_name, role.as_deref(), &params.arguments)
         {
             let elapsed = start.elapsed();
             state.metrics.record_event(EventType::ToolCall {
-                tool_name: tool_name.clone(),
+                tool_name: bare_name.clone(),
                 server_name: "cache".to_string(),
                 duration_ms: elapsed.as_millis() as u64,
                 success: true,
@@ -805,35 +861,56 @@ async fn dispatch_real_tool(
         }
     }
 
-    // Find which server owns this tool
+    // Dispatch to owning server
     let multiplexer = state.multiplexer.read().await;
-    let server_name = multiplexer.find_tool_server(&tool_name);
+    let server_name = resolved_server.and_then(|srv| {
+        // Verify the tool is actually registered in the multiplexer index
+        multiplexer
+            .find_tool_server(&fqn)
+            .or_else(|| multiplexer.find_tool_server(&bare_name))
+            .or(Some(srv))
+            .filter(|_| {
+                multiplexer.find_tool_server(&fqn).is_some()
+                    || multiplexer.find_tool_server(&bare_name).is_some()
+            })
+    });
 
     match server_name {
         Some(server) => {
-            debug!("🔧 Dispatching tool '{}' to server '{}'", tool_name, server);
+            debug!("🔧 Dispatching tool '{}' to server '{}'", bare_name, server);
 
-            // Execute the tool call on the upstream server
-            let result = multiplexer.call_tool(&server, params).await;
+            let upstream_params = ToolCallParams {
+                name: bare_name.clone(),
+                arguments: params.arguments.clone(),
+            };
+
+            // Execute the tool call on the upstream server with the bare tool name
+            let result = multiplexer.call_tool(&server, &upstream_params).await;
             let elapsed = start.elapsed();
+            let duration_ms = elapsed.as_millis() as u64;
 
             // Record metrics
             state.metrics.record_event(EventType::ToolCall {
-                tool_name: tool_name.clone(),
+                tool_name: bare_name.clone(),
                 server_name: server.clone(),
-                duration_ms: elapsed.as_millis() as u64,
+                duration_ms,
                 success: result.is_ok(),
             });
 
+            // Forward to AgentLens if enabled
+            if let Some(ref bridge) = state.agentlens {
+                bridge.forward_tool_call(&fqn, &server, duration_ms, result.is_ok());
+            }
+
             // Audit log
-            security.audit_tool_call(&tool_name, &server, params, elapsed.as_millis() as u64);
+            security.audit_tool_call(&fqn, &server, &upstream_params, duration_ms);
 
             match result {
                 Ok(result_value) => {
                     // Store in cache if enabled
                     if cache_enabled {
                         state.cache.put(
-                            &tool_name,
+                            &bare_name,
                             role.as_deref(),
                             &params.arguments,
                             result_value.clone(),
@@ -1187,6 +1264,9 @@ async fn auth_and_rate_limit_middleware(
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    // Strip any client-supplied role header so it can never be spoofed
+    request.headers_mut().remove("x-mcplex-role");
+
     let path = request.uri().path().to_string();
 
     // Skip auth for health check

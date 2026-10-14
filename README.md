@@ -330,24 +330,26 @@ Every `tools/call` goes through the security engine and is logged. Every `tools/
 
 MCPlex is model-agnostic — it routes any MCP-compliant client traffic regardless of which LLM is driving it. These are the frontier models actively tested and validated with MCPlex:
 
-| Model | Provider | MCP Client | Best For |
-|-------|----------|-----------|----------|
-| **GPT-5.6 Sol** | OpenAI | ChatGPT Work, custom | Flagship reasoning + agentic tasks |
-| **GPT-5.6 Terra** | OpenAI | ChatGPT Work, custom | Balanced performance / cost |
-| **GPT-5.6 Luna** | OpenAI | ChatGPT Work, custom | Cost-efficient everyday tasks |
-| **o3 / o3-mini** | OpenAI | Custom, Cursor, IDEs | Deep math, logic & low-latency reasoning |
-| **Claude Fable 5** | Anthropic | Claude Code, Claude Desktop | Extended reasoning + autonomous code |
-| **Claude Mythos 5** | Anthropic | Claude Code, Claude Desktop | Complex multi-step agent workflows |
-| **Claude Sonnet 5** | Anthropic | Claude Code, Claude Desktop | High-capability, broad availability |
-| **Claude 3.7 Sonnet** | Anthropic | Claude Code, Cursor, Windsurf | Hybrid reasoning + high-speed coding |
-| **Gemini 3.5 Flash** | Google | Gemini Spark, custom | High-throughput, cost-efficient |
-| **Gemini 3.1 Pro** | Google | Gemini Spark, custom | Multimodal + Workspace integration |
-| **DeepSeek V3 / R1** | DeepSeek | Custom, Open-WebUI, Ollama | Open frontier reasoning, cost efficiency |
-| **Grok 4.5** | xAI | Custom / open-weight stacks | Competitive reasoning, open ecosystem |
+| Model | Provider | Context | MCP Client | Best For |
+|-------|----------|---------|-----------|----------|
+| **GPT-6 Astra** | OpenAI | 1M / 1.05M | ChatGPT Work, custom | Flagship reasoning + autonomous agentic tasks |
+| **GPT-6.1 Sol** | OpenAI | 1M / 1.05M | ChatGPT Work, custom | High-precision coding + system architecture |
+| **GPT-5** | OpenAI | 400K | ChatGPT Work, custom | Balanced performance / cost |
+| **o3 / o3-mini** | OpenAI | 200K | Custom, Cursor, IDEs | Deep math, logic & low-latency reasoning |
+| **Claude Opus 5.5** | Anthropic | 500K | Claude Code, Claude Desktop | Frontier multi-step agent workflows & deep code |
+| **Claude Sonnet 5.5** | Anthropic | 400K | Claude Code, Cursor, Windsurf | High-speed coding + everyday agentic tasks |
+| **Claude Haiku 5.5** | Anthropic | 200K | Claude Code, custom | Ultra-low-latency tool routing & subagents |
+| **Claude Fable 5.1** | Anthropic | 1M | Claude Code, Claude Desktop | Long-horizon extended reasoning |
+| **Gemini 4 Argon** | Google DeepMind | 2M | Gemini Spark, custom | Frontier multimodal + massive-context synthesis |
+| **Gemini 3.8 Pro** | Google DeepMind | 2M | Gemini Spark, custom | Multimodal + enterprise Workspace integration |
+| **Gemini 3.8 Flash** | Google DeepMind | 1M | Gemini Spark, custom | High-throughput, cost-efficient agent loops |
+| **DeepSeek V3 / R1** | DeepSeek | 128K | Custom, Open-WebUI, Ollama | Open frontier reasoning, cost efficiency |
+| **Grok 4.7** | xAI | 256K | Custom / open-weight stacks | Real-time reasoning, competitive coding |
+| **Llama 3.3 70B** | Meta | 128K | Ollama, vLLM, local stacks | Self-hosted open-weights tool execution |
 
 The meta-tool pattern (3 gateway tools, ~200 tokens) is particularly effective with models that have smaller default context budgets — MCPlex's token savings become more impactful as model costs rise.
 
-> **Context savings scale with model pricing.** With GPT-5.6 Sol at frontier pricing, eliminating 40k tokens of tool definitions per request translates to measurable cost reduction at scale.
+> **Context savings scale with model pricing.** With GPT-6 Astra and Claude Opus 5.5 at frontier pricing, eliminating 40k tokens of tool definitions per request translates to measurable cost reduction at scale.
 
 ## 🧠 Semantic Tool Routing
 
@@ -652,7 +654,10 @@ MCP Server    MCP Server           MCP Server
 ## CLI Reference
 
 ```bash
-mcplex [OPTIONS]
+mcplex [OPTIONS] [COMMAND]
+
+Commands:
+  doctor                 Check the health of a running gateway and its connected servers
 
 Options:
   -c, --config <FILE>    Config file path [default: mcplex.toml]
@@ -755,29 +760,33 @@ Every tool call, security event, and routing decision is forwarded to AgentLens'
 
 ## 🔥 The Forge Integration
 
-MCPlex pairs naturally with [The Forge](https://github.com/ModernOps888/the-forge) — a multi-agent code evolution platform that pits frontier models head-to-head on coding challenges using evolutionary algorithms.
+MCPlex pairs naturally with [The Forge](https://github.com/ModernOps888/the-forge) — a multi-agent orchestration and code evolution platform that pits frontier models head-to-head on coding challenges.
 
 The Forge exposes its own MCP server, which means you can add it to MCPlex just like any other server:
 
 ```toml
 [[servers]]
 name = "forge"
-url = "http://localhost:8400/mcp"   # The Forge MCP endpoint
-transport = "streamable-http"
+command = "npx"
+args = ["-y", "the-forge-mcp"]
+allowed_tools = ["forge_orchestrate", "forge_build", "forge_score", "forge_consensus", "forge_research", "forge_chat"]
 allowed_roles = ["developer", "admin"]
 ```
 
-With this setup, your agents can invoke Forge tools (multi-model arena runs, evolution sessions, research synthesis) through the same gateway — with full RBAC, audit logging, and token-saving routing applied automatically.
+With this setup, your agents can invoke Forge tools (multi-model orchestration, code builds, consensus scoring, research synthesis) through the same gateway — with full RBAC, audit logging, and token-saving routing applied automatically.
 
 | Forge Tool | What It Does |
 |------------|-------------|
-| `forge_run_arena` | Pit GPT-5.6 / Claude Fable 5 / Gemini / Grok head-to-head on a coding challenge |
-| `forge_evolve` | Apply mutation operators to code and run fitness-gated selection |
-| `forge_research` | Deep-research a topic across multiple models, synthesise consensus |
-| `forge_benchmark` | Score and rank model outputs on custom evaluation criteria |
+| `forge_orchestrate` | Pit GPT-6 Astra / Claude Opus 5.5 / Gemini 4 Argon / Grok 4.7 head-to-head on a coding task |
+| `forge_build` | Execute multi-agent code generation and verification builds |
+| `forge_score` | Score and rank candidate outputs against evaluation rubrics |
+| `forge_consensus` | Synthesize multi-model consensus across competing solutions |
+| `forge_research` | Deep-research a topic across multiple frontier models |
+| `forge_chat` | Interactive multi-model consultation and review |
 
 > MCPlex works 100% independently without The Forge. See [github.com/ModernOps888/the-forge](https://github.com/ModernOps888/the-forge) for setup.
 
+## Contributing
 
 Contributions are welcome! Please:
 
@@ -792,7 +801,19 @@ Contributions are welcome! Please:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🔧 Recent Changes (v0.7.1 — Security Hardening &amp; Configurable Handshake Timeout)
+## 🔧 Recent Changes (v0.7.3 — October 2026 Model Horizon &amp; Security Hardening)
+
+- **Spoofed Role Header Stripping (CRITICAL)** — `auth_and_rate_limit_middleware` now unconditionally strips any client-supplied `X-MCPlex-Role` header at middleware entry before evaluating authentication, preventing unauthenticated or single-key callers from spoofing `X-MCPlex-Role: admin`.
+- **Canonical FQN Security &amp; Upstream Bare-Name Dispatch** — `dispatch_real_tool` now resolves `(server_name, bare_name)` first, evaluates `SecurityEngine::is_tool_allowed` against the canonical `server/tool` FQN, keys `ToolCache` by bare tool name, and forwards the bare tool name to upstream MCP servers even when invoked via `server/tool`.
+- **Per-Server `allowed_roles` Enforcement** — `AllowlistEngine` and `SecurityEngine` now enforce `servers[].allowed_roles` alongside tool-level RBAC rules, propagating `trusted_role` across `tools/list` (passthrough &amp; legacy), `mcplex_find_tools`, and `mcplex_list_categories`.
+- **Stdio Child `stderr` Drain &amp; `kill_on_drop(true)`** — Stdio child processes now spawn a background task draining `stderr` to `tracing::debug!` so verbose upstream servers never deadlock on a full OS pipe buffer, and clean up child processes on drop.
+- **Hot-Reload Bare Filename Fix** — `watch_config` now falls back to `.` when `config_path.parent()` is empty (e.g. `--config mcplex.toml`) and handles `EventKind::Create` for atomic editor saves.
+- **Dashboard XSS Hardening &amp; HTML Serving** — Escaped all dynamic server/tool/event fields in `DASHBOARD_HTML`, exempted `GET /` on the dashboard from header-only API key lockout so browsers can load the page shell, and fixed the 7-card `.metrics-grid` layout.
+- **AgentLens Bridge Live Wiring &amp; Saturating Arithmetic** — Wired `state.agentlens` into `dispatch_real_tool` and `handle_meta_find_tools` via non-blocking background tasks and fixed `total_tools.saturating_sub(selected_tools)` underflow.
+- **October 2026 Frontier Model Horizon** — Updated README, `mcplex.toml`, and dashboard model matrix to October 2026 flagships (`GPT-6 Astra`, `GPT-6.1 Sol`, `Claude Opus 5.5`, `Claude Sonnet 5.5`, `Claude Haiku 5.5`, `Claude Fable 5.1`, `Gemini 4 Argon`, `Gemini 3.8 Pro/Flash`, `DeepSeek V3 / R1`, `Grok 4.7`, `Llama 3.3 70B`) and removed retired `Claude 3.7 Sonnet`.
+
+<details>
+<summary>Previous (v0.7.1 — Security Hardening &amp; Configurable Handshake Timeout)</summary>
 
 - **RBAC Self-Assertion Bypass Fixed (HIGH)** — `dispatch_real_tool` previously fell back to a client-supplied `_mcplex_role` request param whenever no server-verified role was established (e.g. no `api_key`/`api_keys` configured). Any caller could self-assert `role: "admin"` and bypass RBAC entirely. The role now comes exclusively from the auth middleware's server-verified `trusted_role`.
 - **Dashboard Authentication** — `/api/*` dashboard routes were previously unauthenticated. Added optional `gateway.dashboard_api_key`; when set, dashboard routes require a matching `Authorization: Bearer`/`X-API-Key` header. Unset by default (backward compatible), with a startup warning to bind localhost-only in that case.
@@ -802,14 +823,16 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Audit Redaction List Expanded** — added `pwd`, `auth`, `cookie`, `session`, `bearer` to the sensitive-key redaction list.
 - **38 tests passing** (up from 32) — new regression tests for the RBAC fix, cache partitioning, and handshake-timeout config.
 
+</details>
+
 <details>
 <summary>Previous (v0.7.0 — Model Ecosystem Refresh)</summary>
 
-- **Compatible Models Dashboard Panel** — Built-in dashboard now shows a `🤖 Compatible Models` panel with colour-coded provider badges for all 9 active frontier models: GPT-5.6 Sol/Terra/Luna, Claude Fable 5/Mythos 5/Sonnet 5, Gemini 3.5 Flash/3.1 Pro, Grok 4.5.
+- **Compatible Models Dashboard Panel** — Built-in dashboard now shows a `🤖 Compatible Models` panel with colour-coded provider badges for all active frontier models.
 - **Ecosystem Footer** — Dashboard footer now links to AgentLens, The Forge, and GitHub with the current MCP protocol version displayed.
 - **Expanded Server Examples** — `mcplex.toml` and `examples/` updated with `memory`, `fetch`, `brave-search`, `postgres`, `sequential-thinking`, and `forge` (The Forge MCP) server blocks.
 - **The Forge Integration** — New README section with example config and tool table for connecting [The Forge](https://github.com/ModernOps888/the-forge) multi-model arena as an MCP server.
-- **Compatible AI Models Table** — Full July 2026 model matrix in the README with MCP client and use-case guidance.
+- **Compatible AI Models Table** — Full model matrix in the README with MCP client and use-case guidance.
 - **Fixed** Python example protocol version `2025-03-26` → `2025-11-25`.
 - **Fixed** missing CHANGELOG comparison links for v0.4.0–v0.6.0.
 
@@ -827,8 +850,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 </details>
 
-
-
+<details>
+<summary>Previous (v0.5.0 — Security by Design)</summary>
 
 - **Constant-Time API Key Verification** — Key comparison is no longer vulnerable to timing side-channels.
 - **Trusted Role Binding** — Multi-tenant API keys now bind their RBAC role at the middleware layer (`X-MCPlex-Role` injected server-side). Clients can no longer self-assert a role via `_mcplex_role` when authenticated.

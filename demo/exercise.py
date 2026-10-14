@@ -26,7 +26,7 @@ def main():
     # 1. Initialize
     print("\n📌 Step 1: Initialize MCP connection")
     result = send_request("initialize", {
-        "protocolVersion": "2025-03-26",
+        "protocolVersion": "2025-11-25",
         "capabilities": {},
         "clientInfo": {"name": "demo-client", "version": "1.0.0"}
     })

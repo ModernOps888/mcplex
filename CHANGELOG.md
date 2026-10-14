@@ -5,11 +5,31 @@ All notable changes to MCPlex are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] — 2026-10-13
+
+### 🔒 Security & RBAC
+- **Spoofed `X-MCPlex-Role` header stripping (CRITICAL)** — `auth_and_rate_limit_middleware` now unconditionally removes any client-supplied `x-mcplex-role` header before evaluating authentication or role binding, preventing unauthenticated or single-key callers from spoofing `X-MCPlex-Role: admin`.
+- **Canonical FQN security evaluation & upstream bare-name dispatch** — `dispatch_real_tool` now resolves `(server_name, bare_name)` first, evaluates `SecurityEngine::is_tool_allowed` against the canonical `server/tool` FQN, keys `ToolCache` by bare tool name, and passes the bare tool name to upstream MCP servers even when invoked via `server/tool`.
+- **Per-server `allowed_roles` enforcement** — `AllowlistEngine` and `SecurityEngine` now enforce `servers[].allowed_roles` when RBAC is enabled.
+- **Role-filtered tool discovery** — `trusted_role` is now passed through `tools/list` (`passthrough` and `legacy` modes), `mcplex_find_tools`, and `mcplex_list_categories` so callers only see tools permitted for their role.
+- **Dashboard XSS protection & HTML route exemption** — Added `escapeHtml()` across dynamic server, tool, and event rendering in `DASHBOARD_HTML`, and exempted `GET /` on the dashboard server from header-only API key lockout while keeping `/api/*` gated when `dashboard_api_key` is set.
+
+### 🐛 Fixed
+- **Stdio child `stderr` pipe drain & `kill_on_drop(true)`** — `StdioConnection::connect` now sets `cmd.kill_on_drop(true)` and spawns a background task to drain child `stderr` lines via `tracing::debug!`, preventing child process deadlocks when the OS stderr pipe buffer fills.
+- **Hot-reload bare filename support** — `watch_config` now falls back to `Path::new(".")` when `config_path.parent()` returns an empty path (e.g. `--config mcplex.toml`) and triggers on both `EventKind::Modify` and `EventKind::Create`.
+- **AgentLens bridge live wiring & underflow fix** — Wired `state.agentlens` into `dispatch_real_tool` (tool calls and security blocks) and `handle_meta_find_tools` (routing events), and replaced `total_tools - selected_tools` with `total_tools.saturating_sub(selected_tools)`.
+- **Rust toolchain & Docker compatibility** — Replaced `.is_multiple_of()` calls in `src/util.rs` and `src/router/semantic.rs` with standard modulo/bitwise operators and updated `Dockerfile` builder image to `rust:1.88-slim`.
+- **`bridge.mjs` auth & port fallback** — Added `MCPLEX_API_KEY` header forwarding (`Authorization: Bearer` and `X-API-Key`) and fixed default port fallback to `443` (HTTPS) / `80` (HTTP).
+
+### 🤖 October 2026 Frontier Model Horizon
+- **Updated model compatibility matrix** across `README.md`, `mcplex.toml`, and dashboard UI to October 2026 flagships: OpenAI (`GPT-6 Astra`, `GPT-6.1 Sol`, `GPT-5`, `o3 / o3-mini`), Anthropic (`Claude Opus 5.5`, `Claude Sonnet 5.5`, `Claude Haiku 5.5`, `Claude Fable 5.1`), Google DeepMind (`Gemini 4 Argon`, `Gemini 3.8 Pro`, `Gemini 3.8 Flash`), DeepSeek (`DeepSeek V3 / R1`), xAI (`Grok 4.7`), and Meta (`Llama 3.3 70B`). Removed retired `Claude 3.7 Sonnet`.
+- **Updated The Forge integration docs & configs** to use current Forge MCP tools (`forge_orchestrate`, `forge_build`, `forge_score`, `forge_consensus`, `forge_research`, `forge_chat`).
+
 ## [0.7.2] — 2026-09-27
 
 ### 🤖 Model Ecosystem & Reasoning Refresh
 - **DeepSeek V3 / R1 integration** — Added DeepSeek open frontier and reasoning models to the built-in dashboard with dedicated `.mp-deepseek` styling and to the `mcplex.toml` reference.
-- **Extended reasoning models** — Documented support and configuration for Claude 3.7 Sonnet (hybrid reasoning) and OpenAI `o3` / `o3-mini` in the README compatibility table.
+- **Extended reasoning models** — Documented support and configuration for OpenAI `o3` / `o3-mini` and Anthropic extended reasoning models in the README compatibility table.
 - **Dashboard models grid** — Upgraded dashboard compatible models panel to dynamically reflect current frontier models with provider badges.
 
 ## [0.7.1] — 2026-07-21
@@ -168,6 +188,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI with `--config`, `--verbose`, `--listen`, `--dashboard`, and `--check` options
 - MIT licensed
 
+[0.7.3]: https://github.com/ModernOps888/mcplex/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/ModernOps888/mcplex/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/ModernOps888/mcplex/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ModernOps888/mcplex/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ModernOps888/mcplex/compare/v0.5.0...v0.6.0

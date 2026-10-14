@@ -57,8 +57,9 @@ docker run -p 3100:3100 -p 9090:9090 \
 Download from [GitHub Releases](https://github.com/ModernOps888/mcplex/releases):
 
 ```bash
-# Linux/macOS
-curl -fsSL https://github.com/ModernOps888/mcplex/releases/latest/download/mcplex-$(uname -s)-$(uname -m) -o mcplex
+# Linux (x86_64)
+curl -fsSL https://github.com/ModernOps888/mcplex/releases/latest/download/mcplex-linux-x86_64 -o mcplex
+# macOS (Apple Silicon): mcplex-macos-aarch64 | macOS (Intel): mcplex-macos-x86_64
 chmod +x mcplex
 
 # Create your config

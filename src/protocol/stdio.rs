@@ -80,6 +80,7 @@ impl StdioConnection {
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+        cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(|e| {
             anyhow::anyhow!(
@@ -99,12 +100,28 @@ impl StdioConnection {
             .stdout
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout for '{}'", config.name))?;
+        let stderr = child.stderr.take();
 
         let writer = AsyncMutex::new(BufWriter::new(stdin));
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<PendingResult>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
         let server_name = config.name.clone();
+
+        // Drain child stderr in the background so the OS pipe buffer never fills and deadlocks
+        if let Some(stderr) = stderr {
+            let name_for_stderr = server_name.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::debug!(
+                        server = %name_for_stderr,
+                        stderr = %line,
+                        "stdio server stderr"
+                    );
+                }
+            });
+        }
 
         // Start the background reader task
         let pending_for_reader = Arc::clone(&pending);

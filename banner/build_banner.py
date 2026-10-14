@@ -1,9 +1,10 @@
 """Build LinkedIn banner at exactly 1584x396 from scratch."""
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import math, os
 
 W, H = 1584, 396
-OUT = r"C:\Users\bchmi\.gemini\antigravity\brain\0b117669-bfb1-4739-b490-51ec64a6636c\linkedin_banner_built.png"
+OUT = str(Path(__file__).resolve().parent / "linkedin_banner_built.png")
 
 # Colors
 BG = (6, 6, 18)

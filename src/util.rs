@@ -89,8 +89,9 @@ pub fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 /// Check if a year is a leap year.
+#[allow(clippy::manual_is_multiple_of)]
 pub fn is_leap_year(y: u64) -> bool {
-    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
+    y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
 }
 
 #[cfg(test)]

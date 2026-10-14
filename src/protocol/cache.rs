@@ -156,6 +156,11 @@ impl ToolCache {
 
     /// Check if a tool should be cached based on patterns
     fn is_cacheable(&self, tool_name: &str) -> bool {
+        let bare_name = tool_name
+            .rsplit_once('/')
+            .map(|(_, bare)| bare)
+            .unwrap_or(tool_name);
+
         if self.cacheable_patterns.is_empty() {
             // Default: cache read-only tools (list_*, get_*, search_*, query_*, describe_*, show_*)
             let read_prefixes = [
@@ -168,12 +173,12 @@ impl ToolCache {
                 "count_",
                 "check_",
             ];
-            return read_prefixes.iter().any(|p| tool_name.starts_with(p));
+            return read_prefixes.iter().any(|p| bare_name.starts_with(p));
         }
 
         self.cacheable_patterns.iter().any(|pattern| {
             glob::Pattern::new(pattern)
-                .map(|p| p.matches(tool_name))
+                .map(|p| p.matches(bare_name) || p.matches(tool_name))
                 .unwrap_or(false)
         })
     }

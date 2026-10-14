@@ -21,6 +21,7 @@ import https from 'https';
 import readline from 'readline';
 
 const GATEWAY_URL = process.env.MCPLEX_GATEWAY || process.argv[2] || 'http://127.0.0.1:3100/mcp';
+const API_KEY = process.env.MCPLEX_API_KEY || '';
 
 // Set process title for easier identification in task managers
 process.title = 'mcplex-bridge';
@@ -80,12 +81,13 @@ async function callMCPlex(method, jsonrpc, id, params) {
     const transport = url.protocol === 'https:' ? https : http;
     const options = {
       hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 3100),
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
       path: url.pathname || '/',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
+        ...(API_KEY ? { 'Authorization': `Bearer ${API_KEY}`, 'X-API-Key': API_KEY } : {}),
       },
     };
 

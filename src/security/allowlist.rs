@@ -10,6 +10,7 @@ pub struct AllowlistEngine {
 
 struct ServerToolRule {
     server_name: String,
+    allowed_roles: Vec<String>,
     allowed_tools: Vec<String>,
     blocked_tools: Vec<String>,
 }
@@ -20,6 +21,7 @@ impl AllowlistEngine {
             .iter()
             .map(|s| ServerToolRule {
                 server_name: s.name.clone(),
+                allowed_roles: s.allowed_roles.clone(),
                 allowed_tools: s.allowed_tools.clone(),
                 blocked_tools: s.blocked_tools.clone(),
             })
@@ -29,7 +31,18 @@ impl AllowlistEngine {
     }
 
     /// Check if a tool is allowed by the allowlist/blocklist rules
+    #[cfg(test)]
     pub fn is_allowed(&self, tool_fqn: &str) -> bool {
+        self.is_allowed_for_role(tool_fqn, None, false)
+    }
+
+    /// Check if a tool is allowed by the allowlist/blocklist and per-server allowed_roles rules
+    pub fn is_allowed_for_role(
+        &self,
+        tool_fqn: &str,
+        role: Option<&str>,
+        rbac_enabled: bool,
+    ) -> bool {
         // Parse the FQN into server/tool parts
         let (server, tool) = if let Some(pos) = tool_fqn.find('/') {
             (&tool_fqn[..pos], &tool_fqn[pos + 1..])
@@ -42,6 +55,14 @@ impl AllowlistEngine {
             // Only check rules for the matching server
             if !server.is_empty() && rule.server_name != server {
                 continue;
+            }
+
+            // Enforce per-server allowed_roles when RBAC is enabled and the server matches
+            if rbac_enabled && !server.is_empty() && !rule.allowed_roles.is_empty() {
+                match role {
+                    Some(r) if rule.allowed_roles.iter().any(|allowed| allowed == r) => {}
+                    _ => return false,
+                }
             }
 
             // Check blocklist first (takes precedence)
@@ -122,5 +143,30 @@ mod tests {
         assert!(engine.is_allowed("github/get_issue"));
         assert!(!engine.is_allowed("github/delete_repo"));
         assert!(!engine.is_allowed("github/create_issue"));
+    }
+
+    #[test]
+    fn test_server_allowed_roles_enforced_when_rbac_enabled() {
+        let servers = vec![ServerConfig {
+            name: "slack".to_string(),
+            command: None,
+            args: vec![],
+            url: Some("http://localhost:8082".to_string()),
+            transport: crate::config::TransportType::Auto,
+            env: HashMap::new(),
+            allowed_roles: vec!["admin".to_string()],
+            blocked_tools: vec![],
+            allowed_tools: vec![],
+            enabled: true,
+            handshake_timeout_secs: None,
+        }];
+
+        let engine = AllowlistEngine::new(&servers);
+
+        assert!(engine.is_allowed_for_role("slack/send_message", Some("admin"), true));
+        assert!(!engine.is_allowed_for_role("slack/send_message", Some("developer"), true));
+        assert!(!engine.is_allowed_for_role("slack/send_message", None, true));
+        // When RBAC is disabled, allowed_roles is not enforced
+        assert!(engine.is_allowed_for_role("slack/send_message", None, false));
     }
 }

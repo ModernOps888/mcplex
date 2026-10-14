@@ -82,15 +82,16 @@ allowed_roles = ["admin"]
 
 [[servers]]
 name = "forge"
-url = "http://forge-server:8400/mcp"  # The Forge multi-model arena
-transport = "streamable-http"
+command = "npx"
+args = ["-y", "the-forge-mcp"]
+allowed_tools = ["forge_orchestrate", "forge_build", "forge_score", "forge_consensus", "forge_research", "forge_chat"]
 allowed_roles = ["developer", "admin"]
 
 
 # ── Roles ──
 
 [roles.developer]
-allowed_tools = ["github/*", "filesystem/*", "database/query_*"]
+allowed_tools = ["github/*", "filesystem/*", "database/query_*", "forge/*"]
 
 [roles.admin]
 allowed_tools = ["*"]

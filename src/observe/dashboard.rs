@@ -55,7 +55,9 @@ impl DashboardServer {
     }
 }
 
-/// Gate every dashboard route behind `gateway.dashboard_api_key` when configured.
+///// Gate dashboard `/api/*` routes behind `gateway.dashboard_api_key` when configured.
+/// Exempt `GET /` (the static HTML shell) from header-only lockout so a browser
+/// can load the dashboard UI without being blocked on initial navigation.
 /// No-op (all requests pass through) when the key is unset, matching the
 /// pre-existing default of an open dashboard for local/dev use.
 async fn dashboard_auth_middleware(
@@ -63,6 +65,10 @@ async fn dashboard_auth_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    if request.uri().path() == "/" {
+        return next.run(request).await;
+    }
+
     let Some(expected_key) = expected_key else {
         return next.run(request).await;
     };
@@ -329,7 +335,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         /* ─── Metric Cards ─── */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -662,6 +668,7 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
         .mp-google  { background: rgba(59,130,246,0.12); color: #3b82f6; }
         .mp-deepseek { background: rgba(6,182,212,0.12); color: #06b6d4; }
         .mp-xai     { background: rgba(139,92,246,0.12); color: #8b5cf6; }
+        .mp-meta    { background: rgba(236,72,153,0.12); color: #ec4899; }
         .model-name { font-weight: 600; color: var(--text-primary); flex: 1; }
         .model-tier { font-size: 0.7rem; color: var(--text-muted); }
     </style>
@@ -736,16 +743,18 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
                 <span class="count">Frontier Models</span>
             </div>
             <div class="models-grid">
-                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Sol</span><span class="model-tier">Flagship</span></div>
-                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Terra</span><span class="model-tier">Balanced</span></div>
-                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-5.6 Luna</span><span class="model-tier">Cost-efficient</span></div>
-                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Fable 5</span><span class="model-tier">Extended reasoning</span></div>
-                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Mythos 5</span><span class="model-tier">Agentic workflows</span></div>
-                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Sonnet 5</span><span class="model-tier">Broad availability</span></div>
-                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.5 Flash</span><span class="model-tier">High-throughput</span></div>
-                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.1 Pro</span><span class="model-tier">Multimodal</span></div>
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-6 Astra</span><span class="model-tier">Flagship (1M)</span></div>
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">GPT-6.1 Sol</span><span class="model-tier">Coding &amp; Systems (1M)</span></div>
+                <div class="model-row"><span class="model-provider mp-openai">OpenAI</span><span class="model-name">o3 / o3-mini</span><span class="model-tier">Deep Reasoning</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Opus 5.5</span><span class="model-tier">Frontier Agentic (500K)</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Sonnet 5.5</span><span class="model-tier">High-Speed Code (400K)</span></div>
+                <div class="model-row"><span class="model-provider mp-anthropic">Anthropic</span><span class="model-name">Claude Haiku 5.5</span><span class="model-tier">Low-Latency (200K)</span></div>
+                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 4 Argon</span><span class="model-tier">Frontier (2M)</span></div>
+                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.8 Pro</span><span class="model-tier">Multimodal (2M)</span></div>
+                <div class="model-row"><span class="model-provider mp-google">Google</span><span class="model-name">Gemini 3.8 Flash</span><span class="model-tier">High-Throughput (1M)</span></div>
                 <div class="model-row"><span class="model-provider mp-deepseek">DeepSeek</span><span class="model-name">DeepSeek V3 / R1</span><span class="model-tier">Open Frontier</span></div>
-                <div class="model-row"><span class="model-provider mp-xai">xAI</span><span class="model-name">Grok 4.5</span><span class="model-tier">Open ecosystem</span></div>
+                <div class="model-row"><span class="model-provider mp-xai">xAI</span><span class="model-name">Grok 4.7</span><span class="model-tier">Real-Time Reasoning</span></div>
+                <div class="model-row"><span class="model-provider mp-meta">Meta</span><span class="model-name">Llama 3.3 70B</span><span class="model-tier">Open Weights</span></div>
             </div>
         </div>
     </div>
@@ -765,6 +774,15 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
     </footer>
     <script>
         let prevCounters = {};
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         async function fetchData() {
             try {
@@ -858,14 +876,14 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             tbody.innerHTML = tools.map(t => {
                 const errRate = t.invocations > 0 ? (t.errors / t.invocations * 100) : 0;
                 const statusBadge = t.errors > 0
-                    ? `<span class="badge badge-error"><span class="badge-dot"></span>${t.errors} err</span>`
+                    ? `<span class="badge badge-error"><span class="badge-dot"></span>${Number(t.errors) || 0} err</span>`
                     : `<span class="badge badge-success"><span class="badge-dot"></span>OK</span>`;
                 return `
                     <tr>
-                        <td><strong>${t.name}</strong></td>
-                        <td class="mono">${t.invocations}</td>
-                        <td class="mono">${t.avg_ms}ms</td>
-                        <td class="mono">${t.p95_ms}ms</td>
+                        <td><strong>${escapeHtml(t.name)}</strong></td>
+                        <td class="mono">${Number(t.invocations) || 0}</td>
+                        <td class="mono">${escapeHtml(t.avg_ms)}ms</td>
+                        <td class="mono">${Number(t.p95_ms) || 0}ms</td>
                         <td>${statusBadge}</td>
                     </tr>
                 `;
@@ -882,9 +900,9 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             }
             tbody.innerHTML = servers.map(s => `
                 <tr>
-                    <td><strong>${s.name}</strong></td>
-                    <td><span class="badge badge-info">${s.transport}</span></td>
-                    <td class="mono">${s.tools}</td>
+                    <td><strong>${escapeHtml(s.name)}</strong></td>
+                    <td><span class="badge badge-info">${escapeHtml(s.transport)}</span></td>
+                    <td class="mono">${Number(s.tools) || 0}</td>
                     <td>${s.connected
                         ? '<span class="badge badge-success"><span class="badge-dot"></span>Connected</span>'
                         : '<span class="badge badge-error"><span class="badge-dot"></span>Down</span>'}</td>
@@ -911,13 +929,14 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
             feed.innerHTML = events.slice(0, 50).map(e => {
                 const time = new Date(e.timestamp).toLocaleTimeString();
                 const cfg = typeConfig[e.event_type] || { color: 'var(--text-primary)', icon: '•' };
-                const latency = e.duration_ms ? `<span class="latency">${e.duration_ms}ms</span>` : '';
-                const saved = e.tokens_saved ? `<span class="save-tag">🎯 ${e.tokens_saved} saved</span>` : '';
+                const latency = e.duration_ms ? `<span class="latency">${Number(e.duration_ms) || 0}ms</span>` : '';
+                const saved = e.tokens_saved ? `<span class="save-tag">🎯 ${Number(e.tokens_saved) || 0} saved</span>` : '';
+                const detailText = e.tool_name || (e.details && (e.details.query || e.details.detail)) || e.server_name || '';
                 return `
                     <div class="event-item">
-                        <div class="event-time">${time}</div>
-                        <div class="event-type" style="color:${cfg.color}">${cfg.icon} ${e.event_type}</div>
-                        <div class="event-detail">${e.tool_name || e.query || ''} ${latency} ${saved}</div>
+                        <div class="event-time">${escapeHtml(time)}</div>
+                        <div class="event-type" style="color:${cfg.color}">${cfg.icon} ${escapeHtml(e.event_type)}</div>
+                        <div class="event-detail">${escapeHtml(detailText)} ${latency} ${saved}</div>
                     </div>
                 `;
             }).join('');

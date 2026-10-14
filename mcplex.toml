@@ -20,7 +20,7 @@ cache_embeddings = true         # Cache tool embeddings for faster routing
 similarity_threshold = 0.1     # Minimum similarity score (0.0-1.0)
 
 [security]
-enable_rbac = true              # Enable role-based access control
+enable_rbac = false             # Enable role-based access control (requires gateway.api_key or [api_keys])
 enable_audit_log = true         # Enable structured audit logging
 audit_log_path = "./logs/audit.jsonl"  # Audit log file path
 
@@ -96,12 +96,14 @@ audit_log_path = "./logs/audit.jsonl"  # Audit log file path
 # env = { SLACK_TOKEN = "${SLACK_TOKEN}" }
 # allowed_roles = ["admin"]
 
-# Example: The Forge MCP Server — multi-model code evolution arena
+# Example: The Forge MCP Server — multi-model orchestration & consensus arena
+# Tools: forge_orchestrate, forge_build, forge_score, forge_consensus, forge_research, forge_chat
 # See: https://github.com/ModernOps888/the-forge
 # [[servers]]
 # name = "forge"
-# url = "http://localhost:8400/mcp"
-# transport = "streamable-http"
+# command = "npx"
+# args = ["-y", "the-forge-mcp"]
+# allowed_tools = ["forge_orchestrate", "forge_build", "forge_score", "forge_consensus", "forge_research", "forge_chat"]
 # allowed_roles = ["developer", "admin"]
 
 # ─────────────────────────────────────────────
@@ -155,25 +157,27 @@ max_entries = 1000               # Max cached responses
 # forward_cache_events = false                       # Forward cache hits/misses (noisy)
 
 # ─────────────────────────────────────────────
-# Compatible AI Models (July 2026)
+# Compatible AI Models (October 2026)
 # MCPlex is model-agnostic — any MCP client works.
 # Reference table for cost estimation and routing tuning:
 # ─────────────────────────────────────────────
 #
-# Provider    Model               Tier
-# ────────────────────────────────────────────────────
-# OpenAI      GPT-5.6 Sol        Flagship (highest cost)
-# OpenAI      GPT-5.6 Terra      Balanced
-# OpenAI      GPT-5.6 Luna       Cost-efficient
-# OpenAI      o3 / o3-mini       Deep reasoning / low-latency reasoning
-# Anthropic   Claude Fable 5     Extended reasoning
-# Anthropic   Claude Mythos 5    Complex agentic workflows
-# Anthropic   Claude Sonnet 5    High-capability, broad use
-# Anthropic   Claude 3.7 Sonnet  Hybrid reasoning + fast code
-# Google      Gemini 3.5 Flash   High-throughput, value tier
-# Google      Gemini 3.1 Pro     Multimodal, Workspace
-# DeepSeek    DeepSeek V3 / R1   Open frontier, cost-efficient reasoning
-# xAI         Grok 4.5           Open ecosystem, competitive
+# Provider         Model                Context       Tier
+# ──────────────────────────────────────────────────────────────────────
+# OpenAI           GPT-6 Astra          1M / 1.05M    Flagship (highest capability)
+# OpenAI           GPT-6.1 Sol          1M / 1.05M    High-precision coding & systems
+# OpenAI           GPT-5                400K          Balanced
+# OpenAI           o3 / o3-mini         200K          Deep reasoning / low-latency reasoning
+# Anthropic        Claude Opus 5.5      500K          Frontier agentic workflows
+# Anthropic        Claude Sonnet 5.5    400K          High-speed coding & broad use
+# Anthropic        Claude Haiku 5.5     200K          Ultra-low-latency routing
+# Anthropic        Claude Fable 5.1     1M            Extended horizon reasoning
+# Google DeepMind  Gemini 4 Argon       2M            Frontier multimodal & long context
+# Google DeepMind  Gemini 3.8 Pro       2M            Multimodal, Workspace
+# Google DeepMind  Gemini 3.8 Flash     1M            High-throughput, value tier
+# DeepSeek         DeepSeek V3 / R1     128K          Open frontier, cost-efficient reasoning
+# xAI              Grok 4.7             256K          Real-time reasoning, competitive coding
+# Meta             Llama 3.3 70B        128K          Self-hosted open-weights
 #
 # At frontier pricing, MCPlex's 70-90% token savings via meta-tool
 # routing translate directly to proportional cost reduction.

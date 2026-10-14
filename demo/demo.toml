@@ -15,7 +15,7 @@ cache_embeddings = true
 similarity_threshold = 0.1
 
 [security]
-enable_rbac = true
+enable_rbac = false  # Set to true when [api_keys] are configured
 enable_audit_log = true
 audit_log_path = "./logs/demo_audit.jsonl"
 

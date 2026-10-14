@@ -138,7 +138,10 @@ impl AgentLensBridge {
             "step_type": "decision",
             "decision_reason": format!(
                 "Routing query '{}': {} → {} tools (saved {} tool definitions)",
-                query, total_tools, selected_tools, total_tools - selected_tools
+                query,
+                total_tools,
+                selected_tools,
+                total_tools.saturating_sub(selected_tools)
             ),
             "duration_ms": 0,
         });
