@@ -10,12 +10,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue.svg)](https://modelcontextprotocol.io)
-[![Enterprise-Audits](https://img.shields.io/badge/Enterprise-Security_Audits-ff00e5.svg)](https://infinitytechstack.uk/consulting)
 
 *Stop dumping 50k tokens of tool definitions into your LLM's context window.*
 *MCPlex intelligently routes only the tools your agent actually needs.*
-
-> 🛡️ **Enterprise MCP Gateway Architecture & Security Audits**: Building production agent infrastructure with hundreds of MCP tools? We offer **fixed-scope 3-day agentic security audits** (£4,500) and **principal systems advisory** (£650). [**Explore Packages & Inquire →**](https://infinitytechstack.uk/consulting)
 
 </div>
 
